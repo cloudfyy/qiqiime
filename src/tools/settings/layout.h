@@ -250,9 +250,11 @@ void LayoutSettingsControls(HWND hwnd, DialogContext& ctx) noexcept {
         }
         const bool label = id == kIdLblUiTheme || id == kIdLblUiTextScale || id == kIdLblUiLang ||
             id == kIdLblPageSize || id == kIdLblUnderlineStyle || id == kIdLblEnglishSwitch ||
-            id == kIdLblImeSkin;
+            id == kIdLblImeSkin || id == kIdLblSpaceEnter;
         if (label && index + 1 < controls.size()) {
             const int combo = gsl::at(controls, ++index);
+            const bool wide_combo = id == kIdLblSpaceEnter;
+            const bool stacked_row = stacked || wide_combo;
             const bool skin_row = id == kIdLblImeSkin;
             const int skin_font_width = skin_row
                 ? std::min(
@@ -263,7 +265,7 @@ void LayoutSettingsControls(HWND hwnd, DialogContext& ctx) noexcept {
             const bool inline_skin_row =
                 skin_row && !stacked &&
                 skin_pair_width <= content_width;
-            const int row_label_width = stacked
+            const int row_label_width = stacked_row
                 ? content_width
                 : (inline_skin_row
                     ? std::max(
@@ -272,7 +274,7 @@ void LayoutSettingsControls(HWND hwnd, DialogContext& ctx) noexcept {
             const int label_height = std::max(
                 font_height + S(6),
                 text_height(id, row_label_width));
-            const int combo_y = stacked ? y + label_height + S(4) : y;
+            const int combo_y = stacked_row ? y + label_height + S(4) : y;
             place(id, left, y, row_label_width, label_height, false);
             int closed_height = 0;
             if (skin_row && index + 1 < controls.size() &&
@@ -314,7 +316,8 @@ void LayoutSettingsControls(HWND hwnd, DialogContext& ctx) noexcept {
                     place(kIdComboCandidateLayout, right - layout_width, combo_y, layout_width, target, true));
                 ++index;
             } else {
-                closed_height = place(combo, right - field_width, combo_y, field_width, target, true);
+                const int combo_width = wide_combo ? content_width : field_width;
+                closed_height = place(combo, right - combo_width, combo_y, combo_width, target, true);
             }
             y = std::max(y + label_height, combo_y + closed_height) + gap;
             continue;

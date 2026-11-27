@@ -66,6 +66,7 @@ const wchar_t* SettingsConfigFieldLabel(std::string_view key, UiLanguage languag
     if (key == "underline_style") return str.dlg_lbl_underline_style;
     if (key == "ime_skin_id") return LocalizedUiText(language, L"皮肤", L"Skin");
     if (key == "commit_on_english_switch") return str.dlg_lbl_english_switch;
+    if (key == "space_enter_mode") return str.dlg_lbl_space_enter;
     const bool english = ResolveUiLanguage(language) == UiLanguage::EnUs;
     if (key == "ui_theme") return english ? kDisplayEn.theme : kDisplayZh.theme;
     if (key == "ui_text_scale") return english ? kDisplayEn.scale : kDisplayZh.scale;
@@ -183,6 +184,7 @@ void RenderSettingsLanguage(HWND hwnd, DialogContext& ctx) noexcept {
     ::SetDlgItemTextW(hwnd, kIdLblUiLang, str.dlg_lbl_ui_lang);
     ::SetDlgItemTextW(hwnd, kIdLblUnderlineStyle, str.dlg_lbl_underline_style);
     ::SetDlgItemTextW(hwnd, kIdLblEnglishSwitch, str.dlg_lbl_english_switch);
+    ::SetDlgItemTextW(hwnd, kIdLblSpaceEnter, str.dlg_lbl_space_enter);
     ::SetDlgItemTextW(hwnd, kIdBtnBrowsePrimaryDict, str.dlg_btn_browse_dict);
     ::SetDlgItemTextW(
         hwnd,
@@ -215,6 +217,7 @@ void RenderSettingsLanguage(HWND hwnd, DialogContext& ctx) noexcept {
         str.dlg_english_switch_commit, str.dlg_english_switch_clear
     };
     replace_combo_items(kIdComboEnglishSwitch, english_switch_items);
+    replace_combo_items(kIdComboSpaceEnter, str.dlg_space_enter_modes);
     const std::array<const wchar_t*, 2> candidate_layout_items = {
         str.dlg_candidate_horizontal, str.dlg_candidate_vertical
     };

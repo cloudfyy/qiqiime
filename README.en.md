@@ -147,9 +147,9 @@ sign out and back in, or restart Windows.
 | `Shift` tap or `Ctrl + Space` | Toggle Chinese/English |
 | `Shift + Space` | Toggle full-width/half-width |
 | `Ctrl + .` | Toggle Chinese/English punctuation |
-| `Space` | Commit the selected candidate |
+| `Space` | Commit the highlighted Wubi candidate by default; commit temporary English text |
 | `1` through `9` | Select a candidate in Wubi composition |
-| `Enter` | Commit the raw code or temporary English text |
+| `Enter` | Commit the raw Wubi code by default; commit temporary English text |
 | `-` / `=` or `PageUp` / `PageDown` | Previous/next candidate page |
 | `Ctrl + =` | Read a suitable clipboard phrase and add it to the user dictionary |
 | `Ctrl + 1` through `9` | Pin a candidate |
@@ -164,6 +164,13 @@ outside the verified support scope.
 on the settings window's **Candidates** page to show only exact code matches,
 including valid one-, two-, and three-letter short codes. This option is independent
 of progressive code hints and does not change `z` wildcard queries or temporary English.
+
+In **Settings → Input → Space/Enter in Wubi**, choose **Space selects, Enter
+outputs code** (default), **Space selects, Enter clears code**, or **Enter selects,
+Space clears code**. Clearing is equivalent to `Esc`. If there is no candidate,
+the selection key follows the existing auto-clear setting: clear the composition
+when enabled, or commit the raw code otherwise. The option applies only to
+unmodified keys during Wubi composition.
 
 ## Privacy
 

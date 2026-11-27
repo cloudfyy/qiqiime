@@ -268,6 +268,10 @@ void CreateSettingsControls(HWND hwnd, HINSTANCE instance, const DialogContext& 
     create_control(L"BUTTON", str.dlg_btn_ok, button_style, layout::kOkButton, kIdBtnOk);
     create_control(L"BUTTON", str.dlg_btn_cancel, button_style, layout::kCancelButton, kIdBtnCancel);
     const RECT initial{0, 0, 100, 40};
+    create_control(L"STATIC", str.dlg_lbl_space_enter, 0, initial, kIdLblSpaceEnter);
+    const HWND space_enter_combo = create_control(L"COMBOBOX", L"", combo_style, initial, kIdComboSpaceEnter);
+    std::ignore = log::CheckHResult(ReplaceComboBoxItems(space_enter_combo, str.dlg_space_enter_modes),
+        "Settings::ReplaceComboBoxItems(Space/Enter)");
     create_control(L"BUTTON", str.dlg_btn_restore_backup, button_style, initial, kIdBtnImportConfig);
     create_control(L"BUTTON", str.dlg_btn_create_backup, button_style, initial, kIdBtnExportConfig);
     create_control(L"STATIC", L"", 0, initial, kIdLblUiTheme);

@@ -48,6 +48,12 @@ enum class CandidateLayout {
     Vertical
 };
 
+enum class WubiSpaceEnterMode : uint8_t {
+    SpaceSelectEnterCode = 0,
+    SpaceSelectEnterClear = 1,
+    EnterSelectSpaceClear = 2
+};
+
 enum class UiTheme { System, Light, Dark, HighContrast };
 enum class UiTextScale { Percent100, Percent125, Percent150, Percent200 };
 enum class CandidateFontWeight {
@@ -175,6 +181,7 @@ struct QiQiConfig {
     bool clear_on_empty_4code = false;
     bool enable_key_sound = false;
     bool up_down_page_turn = false;
+    WubiSpaceEnterMode space_enter_mode = WubiSpaceEnterMode::SpaceSelectEnterCode;
     UiLanguage ui_language = UiLanguage::Auto;
     CompositionUnderlineStyle underline_style = CompositionUnderlineStyle::Dot;
     bool bold_underline = false;
@@ -279,7 +286,9 @@ inline constexpr auto kConfigFields = std::tuple{
     ConfigField{"ime_skin_id", L"ImeSkinId", &QiQiConfig::ime_skin_id, 0, 21, true},
     ConfigField{"candidate_font_size", L"CandidateFontSize", &QiQiConfig::candidate_font_size, 0, 72, true},
     ConfigField{"candidate_font_weight", L"CandidateFontWeight", &QiQiConfig::candidate_font_weight, 0, 9, true},
-    ConfigField{"candidate_font_italic", L"CandidateFontItalic", &QiQiConfig::candidate_font_italic, 0, 1, true}
+    ConfigField{"candidate_font_italic", L"CandidateFontItalic", &QiQiConfig::candidate_font_italic, 0, 1, true},
+    ConfigField{"space_enter_mode", L"SpaceEnterMode", &QiQiConfig::space_enter_mode, 0,
+        std::to_underlying(WubiSpaceEnterMode::EnterSelectSpaceClear), true}
 };
 
 template <typename Visitor>

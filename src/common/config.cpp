@@ -768,10 +768,9 @@ bool LoadConfigFromRegistry(
                     QIQI_LOG_WARN("Reading the skin selection failed (hr=0x{:08X})",
                         static_cast<unsigned long>(read));
                 }
-            } else {
-                if (ReadRegDword(key.Get(), field.registry_key, dw)) {
-                    std::ignore = field.Assign(cfg, dw);
-                }
+            } else if (ReadRegDword(key.Get(), field.registry_key, dw) && !field.Assign(cfg, dw)) {
+                QIQI_LOG_WARN("Configured scalar is out of range (field={}, hr=0x{:08X})",
+                    field.backup_key, static_cast<unsigned long>(HRESULT_FROM_WIN32(ERROR_INVALID_DATA)));
             }
         });
         ForEachConfigStringField([&](const auto& field) {

@@ -69,6 +69,8 @@ struct UiStrings {
     const wchar_t* dlg_lbl_english_switch;
     const wchar_t* dlg_english_switch_commit;
     const wchar_t* dlg_english_switch_clear;
+    const wchar_t* dlg_lbl_space_enter;
+    std::array<const wchar_t*, 3> dlg_space_enter_modes;
     const wchar_t* dlg_chk_up_down_page_turn;
     const wchar_t* dlg_chk_status_bar;
     const wchar_t* dlg_chk_beep_empty4;
@@ -175,6 +177,8 @@ inline constexpr UiStrings kZhCnStrings = {
     L"未完成输入的处理:",
     L"原始编码上屏",
     L"清除未完成输入",
+    L"五笔组合时的空格/回车:",
+    {L"空格选字，回车输出编码", L"空格选字，回车清码", L"回车选字，空格清码"},
     L"使用 ↑ / ↓ 方向键翻页",
     L"显示桌面浮动状态条",
     L"四码空码时发出提示音",
@@ -232,7 +236,8 @@ inline constexpr UiStrings kZhCnStrings = {
     L"• Shift + Space：切换全角 / 半角字符模式\n"
     L"• Ctrl + .（句号）：切换中文 / 英文标点符号\n\n"
     L"【选词与翻页】\n"
-    L"• Space（空格）/ 数字 1–9（含小键盘）：首选上屏 / 按序号选词\n"
+    L"• 空格 / 回车：默认上屏高亮候选 / 原始编码（可在「输入习惯」更改）\n"
+    L"• 数字 1–9（含小键盘）：按序号选词\n"
     L"• ;（分号）/ '（单引号）：选第 2 / 第 3 候选词（可在设置中开关）\n"
     L"• - = / PageUp PageDown / ↑ ↓：候选词上翻页 / 下翻页\n\n"
     L"【特色输入】\n"
@@ -302,6 +307,8 @@ inline constexpr UiStrings kEnUsStrings = {
     L"Unfinished input:",
     L"Commit raw code",
     L"Discard unfinished input",
+    L"Space/Enter in Wubi:",
+    {L"Space selects, Enter outputs code", L"Space selects, Enter clears code", L"Enter selects, Space clears code"},
     L"Turn candidate pages with Up/Down keys",
     L"Show desktop floating status bar",
     L"Beep on empty 4-letter code",
@@ -359,7 +366,8 @@ inline constexpr UiStrings kEnUsStrings = {
     L"• Shift + Space: Toggle Full-Width / Half-Width characters\n"
     L"• Ctrl + . (Period): Toggle Chinese / English punctuation\n\n"
     L"[Candidate Selection & Paging]\n"
-    L"• Space / Digits 1–9 (incl. Numpad): Commit 1st / Nth candidate\n"
+    L"• Space / Enter: Commit highlighted candidate / raw code by default (configurable in Input)\n"
+    L"• Digits 1–9 (incl. Numpad): Select a candidate by number\n"
     L"• ; (Semicolon) / ' (Apostrophe): Select 2nd / 3rd candidate (optional)\n"
     L"• - = / PageUp PageDown / Up Down: Previous / Next candidate page\n\n"
     L"[Special Input]\n"

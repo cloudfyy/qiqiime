@@ -24,6 +24,9 @@ constexpr auto EnumNames() noexcept {
             PrimaryDictToString(PrimaryDict::BuiltinOnly), PrimaryDictToString(PrimaryDict::Custom)};
     } else if constexpr (std::is_same_v<T, CandidateLayout>) {
         return std::array<std::string_view, 2>{"horizontal", "vertical"};
+    } else if constexpr (std::is_same_v<T, WubiSpaceEnterMode>) {
+        return std::array<std::string_view, 3>{
+            "space-select-enter-code", "space-select-enter-clear", "enter-select-space-clear"};
     } else if constexpr (std::is_same_v<T, UiLanguage>) {
         return std::array<std::string_view, 3>{"auto", "zh-CN", "en-US"};
     } else if constexpr (std::is_same_v<T, CompositionUnderlineStyle>) {

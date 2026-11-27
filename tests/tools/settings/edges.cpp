@@ -51,6 +51,17 @@ void TestSettingsBindingBoundaries() {
     QIQI_TEST_CHECK(hwnd);
     QIQI_TEST_CHECK(::SendDlgItemMessageW(hwnd.Get(), kIdComboEnglishSwitch, CB_GETCOUNT, 0, 0) == 2);
     QIQI_TEST_CHECK(::SendDlgItemMessageW(hwnd.Get(), kIdComboEnglishSwitch, CB_GETCURSEL, 0, 0) == 0);
+    QIQI_TEST_CHECK(::SendDlgItemMessageW(hwnd.Get(), kIdComboSpaceEnter, CB_GETCOUNT, 0, 0) == 3);
+    QIQI_TEST_CHECK(::SendDlgItemMessageW(hwnd.Get(), kIdComboSpaceEnter, CB_GETCURSEL, 0, 0) == 0);
+    for (const auto mode : {WubiSpaceEnterMode::SpaceSelectEnterCode,
+                            WubiSpaceEnterMode::SpaceSelectEnterClear,
+                            WubiSpaceEnterMode::EnterSelectSpaceClear}) {
+        cfg.space_enter_mode = mode;
+        WriteSettingsToWindowControls(hwnd.Get(), cfg);
+        QiQiConfig read_mode;
+        ReadSettingsFromWindowControls(hwnd.Get(), read_mode);
+        QIQI_TEST_CHECK(read_mode.space_enter_mode == mode);
+    }
     for (const auto layout : {CandidateLayout::Horizontal, CandidateLayout::Vertical}) {
         cfg.candidate_layout = layout;
         WriteSettingsToWindowControls(hwnd.Get(), cfg);
@@ -85,17 +96,20 @@ void TestSettingsBindingBoundaries() {
     ::SendDlgItemMessageW(hwnd.Get(), kIdComboUiLang, CB_SETCURSEL, gsl::narrow_cast<WPARAM>(-1), 0);
     ::SendDlgItemMessageW(hwnd.Get(), kIdComboUnderlineStyle, CB_SETCURSEL, gsl::narrow_cast<WPARAM>(-1), 0);
     ::SendDlgItemMessageW(hwnd.Get(), kIdComboEnglishSwitch, CB_SETCURSEL, gsl::narrow_cast<WPARAM>(-1), 0);
+    ::SendDlgItemMessageW(hwnd.Get(), kIdComboSpaceEnter, CB_SETCURSEL, gsl::narrow_cast<WPARAM>(-1), 0);
     ::SendDlgItemMessageW(hwnd.Get(), kIdComboCandidateLayout, CB_SETCURSEL, gsl::narrow_cast<WPARAM>(-1), 0);
     QiQiConfig actual;
     actual.page_size = 7;
     actual.ui_language = UiLanguage::EnUs;
     actual.underline_style = CompositionUnderlineStyle::Squiggle;
     actual.commit_on_english_switch = false;
+    actual.space_enter_mode = WubiSpaceEnterMode::SpaceSelectEnterClear;
     actual.candidate_layout = CandidateLayout::Vertical;
     ReadSettingsFromWindowControls(hwnd.Get(), actual);
     QIQI_TEST_CHECK(actual.page_size == 7 && actual.ui_language == UiLanguage::EnUs &&
                     actual.underline_style == CompositionUnderlineStyle::Squiggle);
     QIQI_TEST_CHECK(!actual.commit_on_english_switch);
+    QIQI_TEST_CHECK(actual.space_enter_mode == WubiSpaceEnterMode::SpaceSelectEnterClear);
     QIQI_TEST_CHECK(actual.candidate_layout == CandidateLayout::Vertical);
     for (const bool commit : {true, false}) {
         cfg.commit_on_english_switch = commit;
@@ -173,6 +187,18 @@ void TestSettingsLiveLanguagePreservesControls() {
         ::GetDlgItemTextW(hwnd.Get(), kIdLblEnglishSwitch, switch_label.data(),
                          gsl::narrow_cast<int>(switch_label.size()));
         QIQI_TEST_CHECK(std::wstring(switch_label.data()) == str.dlg_lbl_english_switch);
+        std::array<wchar_t, 128> space_enter_label{};
+        ::GetDlgItemTextW(hwnd.Get(), kIdLblSpaceEnter, space_enter_label.data(),
+                         gsl::narrow_cast<int>(space_enter_label.size()));
+        QIQI_TEST_CHECK(std::wstring_view(space_enter_label.data()) == str.dlg_lbl_space_enter);
+        for (size_t item = 0; item < str.dlg_space_enter_modes.size(); ++item) {
+            std::array<wchar_t, 128> text{};
+            const LRESULT length = ::SendDlgItemMessageW(hwnd.Get(), kIdComboSpaceEnter, CB_GETLBTEXTLEN, item, 0);
+            QIQI_TEST_CHECK(length > 0 && length < gsl::narrow_cast<LRESULT>(text.size()));
+            QIQI_TEST_CHECK(::SendDlgItemMessageW(hwnd.Get(), kIdComboSpaceEnter, CB_GETLBTEXT, item,
+                                reinterpret_cast<LPARAM>(text.data())) == length);
+            QIQI_TEST_CHECK(std::wstring_view(text.data()) == gsl::at(str.dlg_space_enter_modes, item));
+        }
         std::array<wchar_t, 64> restore_label{};
         ::GetDlgItemTextW(hwnd.Get(), kIdBtnRestoreDefaults, restore_label.data(),
                          gsl::narrow_cast<int>(restore_label.size()));
@@ -240,7 +266,7 @@ void TestSettingsDirtyTitle() {
                 check_title(language, false);
             }
             for (const int combo : {kIdComboPageSize, kIdComboCandidateLayout,
-                                   kIdComboUnderlineStyle, kIdComboEnglishSwitch}) {
+                                   kIdComboUnderlineStyle, kIdComboEnglishSwitch, kIdComboSpaceEnter}) {
                 const auto initial = ::SendDlgItemMessageW(window.Get(), combo, CB_GETCURSEL, 0, 0);
                 select_combo(combo, initial == 0 ? 1u : 0u);
                 check_title(language, true);

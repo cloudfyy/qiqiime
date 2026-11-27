@@ -435,7 +435,6 @@ void TestIntegratedServiceRouting() {
     config.enable_jidian_extra = false;
     config.user_dict_path = dictionary_path.wstring();
     config.show_status_bar = false;
-    QIQI_TEST_CHECK(SaveConfigToRegistry(config));
     const auto restore = gsl::finally([&]() noexcept {
         QIQI_TEST_CHECK(SaveConfigToRegistry(saved));
     });
@@ -449,6 +448,9 @@ void TestIntegratedServiceRouting() {
     for (const auto action : {
              Action::Key, Action::SelectFinalize,
              Action::Exact, Action::Abort}) {
+        config.space_enter_mode = action == Action::Key
+            ? WubiSpaceEnterMode::SpaceSelectEnterCode : WubiSpaceEnterMode::EnterSelectSpaceClear;
+        QIQI_TEST_CHECK(SaveConfigToRegistry(config));
         QIQI_TEST_CHECK(::SetKeyboardState(clean_keyboard.data()));
         const auto service = MakeComObject<QiQiTextService>(g_dll_instance);
         const auto manager = MakeComObject<MockTfThreadMgr>();
@@ -488,6 +490,13 @@ void TestIntegratedServiceRouting() {
             QIQI_TEST_CHECK(integration->OnKeyDown(
                                 'B', 0, &eaten) == S_OK && eaten);
             QIQI_TEST_CHECK(context->range_->text_ == L"ab");
+            config.space_enter_mode = WubiSpaceEnterMode::EnterSelectSpaceClear;
+            QIQI_TEST_CHECK(SaveConfigToRegistry(config));
+            QIQI_TEST_CHECK(service->OnChange(kGuidCompartmentConfigVersion) == S_OK);
+            QIQI_TEST_CHECK(context->range_->text_ == L"ab" && !context->last_composition_->ended_);
+            QIQI_TEST_CHECK(service->OnTestKeyDown(context.Get(), VK_SPACE, 0, &eaten) == S_OK && eaten);
+            QIQI_TEST_CHECK(integration->OnKeyDown(VK_SPACE, 0, &eaten) == S_OK && eaten);
+            QIQI_TEST_CHECK(context->last_composition_->ended_ && context->range_->text_.empty());
             break;
         }
         case Action::SelectFinalize: {

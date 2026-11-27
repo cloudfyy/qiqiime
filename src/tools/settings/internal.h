@@ -75,6 +75,8 @@ constexpr int kIdBtnOpenGitHub = 157;
 constexpr int kIdLblShortcutsTitle = 158;
 constexpr int kIdLblShortcutsSubtitle = 159;
 constexpr int kIdLblShortcutsBody = 160;
+constexpr int kIdLblSpaceEnter = 161;
+constexpr int kIdComboSpaceEnter = 162;
 inline constexpr const wchar_t* kSkinPickerWndClass = L"QiQiImeSkinPicker";
 constexpr UINT kSettingsEnsureFocusVisible = WM_APP + 93;
 constexpr UINT kSettingsCyclePage = WM_APP + 94;
@@ -96,7 +98,7 @@ inline constexpr std::array<SettingsPageLabel, 7> kSettingsPageLabels{{
 }};
 inline constexpr std::array kSettingsInputControls{
     kIdChkAutoCommit4, kIdChkPushCommit5, kIdChkQuickSelect, kIdChkDynamicFreq,
-    kIdChkShiftToggle, kIdLblEnglishSwitch, kIdComboEnglishSwitch};
+    kIdChkShiftToggle, kIdLblEnglishSwitch, kIdComboEnglishSwitch, kIdLblSpaceEnter, kIdComboSpaceEnter};
 inline constexpr std::array kSettingsDictionaryControls{
     kIdRadioJidian, kIdChkExtraDict, kIdRadioHaifeng, kIdRadioBuiltin,
     kIdRadioCustom, kIdBtnBrowsePrimaryDict, kIdBtnDictManager, kIdLblCustomPrimaryPath,

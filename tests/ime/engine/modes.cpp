@@ -5,6 +5,7 @@
 #include "ime/engine/engine.h"
 
 #include <windows.h>
+#include <array>
 #include <string>
 
 namespace qiqi::test {
@@ -75,6 +76,78 @@ void TestModeSwitchingAndShouldEatKey() {
     QIQI_TEST_CHECK(engine.IsChineseMode());
     QIQI_TEST_CHECK(engine.ProcessKey('A', false, true, false).action == KeyActionType::PassThrough);
     QIQI_TEST_CHECK(engine.ProcessKey(VK_F1).action == KeyActionType::PassThrough);
+}
+
+void TestWubiSpaceEnterModes() {
+    using Mode = WubiSpaceEnterMode;
+    using Action = KeyActionType;
+    struct Case {
+        Mode mode;
+        uint32_t key;
+        Action action;
+        const wchar_t* text;
+    };
+    constexpr std::array cases{
+        Case{Mode::SpaceSelectEnterCode, VK_SPACE, Action::Commit, L"乙"},
+        Case{Mode::SpaceSelectEnterCode, VK_RETURN, Action::Commit, L"xxxy"},
+        Case{Mode::SpaceSelectEnterClear, VK_SPACE, Action::Commit, L"乙"},
+        Case{Mode::SpaceSelectEnterClear, VK_RETURN, Action::Cancel, L""},
+        Case{Mode::EnterSelectSpaceClear, VK_SPACE, Action::Cancel, L""},
+        Case{Mode::EnterSelectSpaceClear, VK_RETURN, Action::Commit, L"乙"},
+    };
+    WubiEngine engine;
+    engine.AddEntry(L"xxxy", L"甲");
+    engine.AddEntry(L"xxxy", L"乙");
+    for (const auto& test : cases) {
+        QiQiConfig config;
+        config.space_enter_mode = test.mode;
+        engine.ApplyConfig(config);
+        for (const uint32_t key : {'X', 'X', 'X', 'Y'}) {
+            QIQI_TEST_CHECK(engine.ProcessKey(key).action == Action::UpdateState);
+        }
+        const auto highlighted = engine.ProcessKey(VK_RIGHT);
+        QIQI_TEST_CHECK(highlighted.selected_index == 1);
+        QIQI_TEST_CHECK(engine.ShouldEatKey(test.key, false, false, false));
+        QIQI_TEST_CHECK(!engine.ShouldEatKeyAfterReset(test.key, false, false, false));
+        QIQI_TEST_CHECK(engine.ProcessKey(test.key, false, true).action == Action::PassThrough);
+        const auto result = engine.ProcessKey(test.key);
+        QIQI_TEST_CHECK(result.action == test.action && result.committed_text == test.text);
+        QIQI_TEST_CHECK(engine.State() == EngineState::Idle && engine.RawCode().empty());
+    }
+}
+
+void TestWubiSpaceEnterBoundaries() {
+    using Action = KeyActionType;
+    QiQiConfig config;
+    config.space_enter_mode = WubiSpaceEnterMode::EnterSelectSpaceClear;
+    config.enable_code_completion = false;
+    WubiEngine engine;
+    for (const bool clear : {false, true}) {
+        config.clear_on_empty_4code = clear;
+        engine.ApplyConfig(config);
+        for (const uint32_t key : {'X', 'X', 'Y'}) engine.ProcessKey(key);
+        QIQI_TEST_CHECK(engine.RawCode() == L"xxy" && engine.AllCandidates().empty());
+        const auto result = engine.ProcessKey(VK_RETURN);
+        QIQI_TEST_CHECK(result.action == (clear ? Action::Cancel : Action::Commit));
+        QIQI_TEST_CHECK(result.committed_text == (clear ? L"" : L"xxy") && !engine.IsComposing());
+    }
+
+    for (const uint32_t key : {VK_SPACE, VK_RETURN}) {
+        QIQI_TEST_CHECK(!engine.ShouldEatKey(key, false, false, false));
+        QIQI_TEST_CHECK(engine.ProcessKey(key).action == Action::PassThrough);
+        engine.SetChineseMode(false);
+        QIQI_TEST_CHECK(!engine.ShouldEatKey(key, false, false, false));
+        QIQI_TEST_CHECK(engine.ProcessKey(key).action == Action::PassThrough);
+        engine.SetChineseMode(true);
+        engine.ProcessKey('Z');
+        engine.ProcessKey('X');
+        QIQI_TEST_CHECK(engine.ShouldEatKey(key, false, false, false));
+        const auto result = engine.ProcessKey(key);
+        QIQI_TEST_CHECK(result.action == Action::Commit && result.committed_text == L"x");
+    }
+    engine.ProcessKey('A');
+    const auto shifted = engine.ProcessKey(VK_RETURN, true);
+    QIQI_TEST_CHECK(shifted.action == Action::Commit && shifted.committed_text == L"a");
 }
 
 void TestChinesePunctuation() {
@@ -324,6 +397,8 @@ void TestModeSwitchPolicyPreservesFsmContract() {
 
 void RunEngineModesPunctTests() {
     TestModeSwitchingAndShouldEatKey();
+    TestWubiSpaceEnterModes();
+    TestWubiSpaceEnterBoundaries();
     TestChinesePunctuation();
     TestFullWidthMode();
     TestModeSwitchPolicyPreservesFsmContract();

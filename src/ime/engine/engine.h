@@ -249,6 +249,7 @@ public:
     void SetEnableKeySound(bool enabled) noexcept { enable_key_sound_ = enabled; }
     bool UpDownPageTurn() const noexcept { return up_down_page_turn_; }
     void SetUpDownPageTurn(bool enabled) noexcept { up_down_page_turn_ = enabled; }
+    void SetSpaceEnterMode(WubiSpaceEnterMode mode) noexcept { space_enter_mode_ = mode; }
 
     // State queries
     EngineState State() const noexcept { return state_; }
@@ -281,6 +282,8 @@ public:
     // Commit a candidate on the current page without interpreting a keyboard event.
     KeyProcessResult CommitCandidate(
         size_t index_in_page, bool allow_learn = true, bool defer_phrase_promotion = false);
+
+    KeyProcessResult CommitExactComposition();
 
     // Select a global candidate index without committing the composition.
     KeyProcessResult SelectCandidate(size_t global_index);
@@ -404,6 +407,7 @@ private:
     bool clear_on_empty_4code_ = false;
     bool enable_key_sound_ = false;
     bool up_down_page_turn_ = false;
+    WubiSpaceEnterMode space_enter_mode_ = WubiSpaceEnterMode::SpaceSelectEnterCode;
     bool full_width_mode_ = false;
     bool chinese_punctuation_ = true;
     bool double_quote_open_ = false;

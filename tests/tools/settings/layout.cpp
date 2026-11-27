@@ -90,6 +90,10 @@ void TestSettingsTextAlignment() {
                     cancel.right <= client.right);
                 QIQI_TEST_CHECK(ok.bottom <= client.bottom && cancel.bottom <= client.bottom);
                 QIQI_TEST_CHECK(bounds(kIdComboEnglishSwitch).right == control_right);
+                const RECT space_enter_label = bounds(kIdLblSpaceEnter);
+                const RECT space_enter = bounds(kIdComboSpaceEnter);
+                QIQI_TEST_CHECK(space_enter_label.bottom <= space_enter.top);
+                QIQI_TEST_CHECK(space_enter.left == space_enter_label.left && space_enter.right == control_right);
                 QIQI_TEST_CHECK(restore.right - restore.left < (control_right - context->page_bounds.left) / 2);
                 SelectSettingsPage(dialog.Get(), *context, SettingsPage::Dictionary);
                 const RECT browse = bounds(kIdBtnBrowsePrimaryDict);

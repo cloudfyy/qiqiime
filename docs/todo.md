@@ -49,7 +49,7 @@
 
 | 按键 / 操作 | 当前行为或缺口 |
 | --- | --- |
-| Space / Enter | 当前固定为空格提交高亮候选、回车输出编码；既不是“回车清码”，也不是“回车选字、空格清码”。已有三选一设置 TODO，见 W01，保留当前默认。 |
+| Space / Enter | 已支持三选一，默认空格提交高亮候选、回车输出编码；另可选回车清码或回车选字、空格清码，见 W01。 |
 | Esc / Backspace | 已有：取消组合 / 删除最后一个编码；删到空时结束组合。 |
 | `1`～`9` / `0` | 已有当前页第 1～9 候选选择；每页最多 9 个，`0` 不选第十个，见 W14。 |
 | `;` / `'` | 已有当前页第二/第三候选选择，默认开启；对应候选不存在时不提交。 |
@@ -81,7 +81,7 @@ P2 补充可配置性及数据能力，P3 为较大扩展或暂缓项。
 
 | 顺序 | 优先级 | 任务 | 主要依赖 / 排序理由 |
 | --- | --- | --- | --- |
-| 1 | P1 | [W01 空格/回车三种模式](#wubi-w01) | 已有明确三选一需求；优先解决输入习惯兼容，不改旧默认。 |
+| 1 | P1 | [W01 空格/回车三种模式](#wubi-w01)（已完成） | 三选一设置，保留旧默认。 |
 | 2 | P1 | [W02 单字模式](#wubi-w02) | 高频、边界较清楚；同时核对过滤后的四码唯一判断。 |
 | 3 | P1 | [W03 简码开关 / 全码练习](#wubi-w03) | 与编码补全独立；先确认真实全码、自定义简码及提示策略。 |
 | 4 | P1 | [W04 以词定字](#wubi-w04) | 复用现有候选选择/上屏；先定义入口及首末字语义。 |
@@ -1013,21 +1013,21 @@ status-bar/tooltip skin support require separate design approval.
   add focused tests for prediction callbacks, key repeat, composition handling,
   and both CapsLock modes.
 
-- [ ] <a id="wubi-w01"></a> **W01 / P1:** Add a persisted three-option Space/Enter
-  behavior setting for Wubi composition.
-  Expose mutually exclusive options in the settings UI with these labels:
+- [x] <a id="wubi-w01"></a> **W01 / P1:** Persist three Space/Enter behaviors
+  for Wubi composition on the Settings Input page:
   - "空格选字，回车输出编码" (default): Space commits the highlighted
     candidate; Enter commits the raw code.
   - "空格选字，回车清码": Space commits the highlighted candidate;
     Enter cancels the current composition.
   - "回车选字，空格清码": Enter commits the highlighted candidate;
     Space cancels the current composition.
-  Preserve existing defaults, including the current empty-code clearing option.
-  Define no-candidate behavior and interaction with that option before
-  implementation. Keep Esc cancellation, temporary English, and keys outside
-  Wubi composition unchanged. Add focused configuration, prediction, and
-  key-handling tests for all three options, including highlighted selection
-  and no-candidate cases.
+  The selection key follows `clear_on_empty_4code` when no candidate exists:
+  cancel if enabled, otherwise commit the raw code. The clear key uses the same
+  cancellation as Esc. Keyboard prediction and execution share the Wubi-only
+  mapping without changing FSM states or the transition table; shortcuts,
+  temporary English, and host requests to finalize raw input remain unchanged.
+  The registry DWORD `SpaceEnterMode` uses 0/1/2 in the order above; backups
+  store stable string names under `space_enter_mode`.
 
 - [ ] Measure input-path allocation pressure and deferred edit-session retention.
   Count allocations and allocated bytes per key/edit request, including result

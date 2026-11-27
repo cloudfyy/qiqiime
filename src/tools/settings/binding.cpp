@@ -286,6 +286,13 @@ static HRESULT PopulateSettingsControls(HWND hwnd, const QiQiConfig& config, boo
         hwnd, kIdComboUnderlineStyle, CB_SETCURSEL, gsl::narrow_cast<WPARAM>(underline_idx), 0);
     ::SendDlgItemMessageW(hwnd, kIdComboEnglishSwitch, CB_SETCURSEL,
         config.commit_on_english_switch ? 0 : 1, 0);
+    const HWND space_enter = ::GetDlgItem(hwnd, kIdComboSpaceEnter);
+    if (!space_enter || ::SendMessageW(space_enter, CB_SETCURSEL,
+                            static_cast<WPARAM>(config.space_enter_mode), 0) == CB_ERR) {
+        const HRESULT hr = space_enter ? E_FAIL : HRESULT_FROM_WIN32(ERROR_INVALID_WINDOW_HANDLE);
+        std::ignore = log::CheckHResult(hr, "Settings::PopulateSettingsControls(Space/Enter)");
+        return hr;
+    }
     ::SendDlgItemMessageW(hwnd, kIdComboUiTheme, CB_SETCURSEL, static_cast<WPARAM>(config.ui_theme), 0);
     if (auto* context = reinterpret_cast<DialogContext*>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA))) {
         context->preview_skin_id = config.ime_skin_id;
@@ -374,6 +381,14 @@ void ReadSettingsFromWindowControls(HWND hwnd, QiQiConfig& config) noexcept {
     const LRESULT english_switch_sel = ::SendDlgItemMessageW(hwnd, kIdComboEnglishSwitch, CB_GETCURSEL, 0, 0);
     if (english_switch_sel == 0 || english_switch_sel == 1) {
         config.commit_on_english_switch = (english_switch_sel == 0);
+    }
+    const HWND space_enter = ::GetDlgItem(hwnd, kIdComboSpaceEnter);
+    const LRESULT space_enter_sel = space_enter ? ::SendMessageW(space_enter, CB_GETCURSEL, 0, 0) : CB_ERR;
+    if (space_enter_sel >= 0 && space_enter_sel <= std::to_underlying(WubiSpaceEnterMode::EnterSelectSpaceClear)) {
+        config.space_enter_mode = static_cast<WubiSpaceEnterMode>(space_enter_sel);
+    } else {
+        QIQI_LOG_WARN("ReadSettingsFromWindowControls: Space/Enter selection unavailable (result={})",
+            space_enter_sel);
     }
     const LRESULT theme = ::SendDlgItemMessageW(hwnd, kIdComboUiTheme, CB_GETCURSEL, 0, 0);
     const LRESULT scale = ::SendDlgItemMessageW(hwnd, kIdComboUiTextScale, CB_GETCURSEL, 0, 0);

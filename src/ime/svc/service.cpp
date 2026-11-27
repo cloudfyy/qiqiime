@@ -976,9 +976,7 @@ HRESULT QiQiTextService::HandleCandidateUiAction(
             policy.can_learn, true);
         break;
     case CandidateUiAction::FinalizeExact:
-        result = engine_.ProcessKey(
-            VK_RETURN, false, false, false, false,
-            policy.can_learn, true);
+        result = engine_.CommitExactComposition();
         break;
     default:
         return E_INVALIDARG;

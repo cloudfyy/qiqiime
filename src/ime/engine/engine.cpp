@@ -41,6 +41,7 @@ void WubiEngine::ApplyConfig(const QiQiConfig& cfg) noexcept {
     clear_on_empty_4code_ = cfg.clear_on_empty_4code;
     enable_key_sound_ = cfg.enable_key_sound;
     up_down_page_turn_ = cfg.up_down_page_turn;
+    SetSpaceEnterMode(cfg.space_enter_mode);
     full_width_mode_ = cfg.default_full_width;
     chinese_punctuation_ = cfg.default_chinese_punct;
     SetChineseMode(cfg.default_chinese_mode);
@@ -198,7 +199,7 @@ KeyProcessResult WubiEngine::MakeCurrentStateResult(KeyActionType action, std::w
 
 TransitionRule WubiEngine::EvaluateKeyTransition(
     EngineState state, uint32_t vk, bool shift_down, bool ctrl_down, bool alt_down, bool caps_lock_on) const noexcept {
-    const KeyEventKind event = ClassifyKeyEvent(
+    KeyEventKind event = ClassifyKeyEvent(
         vk,
         shift_down,
         ctrl_down,
@@ -210,6 +211,16 @@ TransitionRule WubiEngine::EvaluateKeyTransition(
         state,
         caps_lock_on,
         up_down_page_turn_);
+    // Remap unmodified Wubi keys before dispatch; the FSM's actions stay the same.
+    if (!shift_down && (event == KeyEventKind::Space || event == KeyEventKind::Enter) &&
+        IsWubiComposingState(state)) {
+        if (space_enter_mode_ == WubiSpaceEnterMode::EnterSelectSpaceClear) {
+            event = event == KeyEventKind::Enter ? KeyEventKind::Space : KeyEventKind::Escape;
+        } else if (event == KeyEventKind::Enter &&
+                   space_enter_mode_ == WubiSpaceEnterMode::SpaceSelectEnterClear) {
+            event = KeyEventKind::Escape;
+        }
+    }
     return LookupTransition(state, event);
 }
 
@@ -332,6 +343,13 @@ KeyProcessResult WubiEngine::CommitCandidate(
     size_t index_in_page, bool allow_learn, bool defer_phrase_promotion) {
     return ExecuteTransition([this, index_in_page, allow_learn, defer_phrase_promotion] {
         return ResolveCandidateCommit(index_in_page, allow_learn, defer_phrase_promotion);
+    });
+}
+
+KeyProcessResult WubiEngine::CommitExactComposition() {
+    if (!IsComposing()) return {};
+    return ExecuteTransition([this] {
+        return IsTempEnglishMode() ? HandleCommitTempEnglish({}) : HandleCommitRawCode({});
     });
 }
 

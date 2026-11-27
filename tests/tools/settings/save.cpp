@@ -47,6 +47,8 @@ void TestSaveRetryAndCancel() {
             ::SendDlgItemMessageW(hwnd.Get(), kIdRadioHaifeng, BM_CLICK, 0, 0);
             ::SendDlgItemMessageW(hwnd.Get(), kIdComboPageSize, CB_SETCURSEL, 8, 0);
             ::SendDlgItemMessageW(hwnd.Get(), kIdComboEnglishSwitch, CB_SETCURSEL, 1, 0);
+            ::SendDlgItemMessageW(hwnd.Get(), kIdComboSpaceEnter, CB_SETCURSEL,
+                                 static_cast<WPARAM>(WubiSpaceEnterMode::EnterSelectSpaceClear), 0);
             ::SendDlgItemMessageW(hwnd.Get(), kIdComboCandidateLayout, CB_SETCURSEL, 1, 0);
             ::SendDlgItemMessageW(hwnd.Get(), kIdComboUiLang, CB_SETCURSEL,
                                  language == UiLanguage::ZhCn ? 1 : 2, 0);
@@ -68,6 +70,8 @@ void TestSaveRetryAndCancel() {
             QIQI_TEST_CHECK(edits.primary_dict == PrimaryDict::Haifeng && edits.page_size == 9);
             QIQI_TEST_CHECK(edits.enable_key_sound && edits.ui_language == language);
             QIQI_TEST_CHECK(!edits.commit_on_english_switch && cfg.commit_on_english_switch);
+            QIQI_TEST_CHECK(edits.space_enter_mode == WubiSpaceEnterMode::EnterSelectSpaceClear &&
+                            cfg.space_enter_mode == WubiSpaceEnterMode::SpaceSelectEnterCode);
             QIQI_TEST_CHECK(edits.candidate_layout == CandidateLayout::Vertical &&
                             cfg.candidate_layout == CandidateLayout::Horizontal);
             SetConfigRegistrySubKeyOverrideForTest(subkey.c_str());
@@ -89,6 +93,9 @@ void TestSaveRetryAndCancel() {
             QIQI_TEST_CHECK(stored.enable_key_sound == cfg.enable_key_sound);
             QIQI_TEST_CHECK(stored.commit_on_english_switch == cancel);
             QIQI_TEST_CHECK(stored.commit_on_english_switch == cfg.commit_on_english_switch);
+            QIQI_TEST_CHECK(stored.space_enter_mode == (cancel
+                ? WubiSpaceEnterMode::SpaceSelectEnterCode : WubiSpaceEnterMode::EnterSelectSpaceClear));
+            QIQI_TEST_CHECK(stored.space_enter_mode == cfg.space_enter_mode);
             QIQI_TEST_CHECK(stored.candidate_layout ==
                             (cancel ? CandidateLayout::Horizontal : CandidateLayout::Vertical));
             QIQI_TEST_CHECK(stored.candidate_layout == cfg.candidate_layout);
@@ -500,7 +507,7 @@ void TestSettingsFieldMergeMatrix() {
             ++cases;
         }
     });
-    QIQI_TEST_CHECK(cases == 56);
+    QIQI_TEST_CHECK(cases == 2 * 29);
     for (const bool dirty : {false, true}) {
         QiQiConfig baseline;
         baseline.candidate_font_family = L"Segoe UI";

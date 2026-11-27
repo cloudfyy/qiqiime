@@ -950,6 +950,7 @@ void QiQiTextService::ApplyDynamicEngineSettings() noexcept {
     engine_.SetClearOnEmpty4Code(config_.clear_on_empty_4code);
     engine_.SetEnableKeySound(config_.enable_key_sound);
     engine_.SetUpDownPageTurn(config_.up_down_page_turn);
+    engine_.SetSpaceEnterMode(config_.space_enter_mode);
 }
 
 bool QiQiTextService::PersistAndSyncQuickConfigChange(QiQiConfig updated_config, bool reload_dicts) {
