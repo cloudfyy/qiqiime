@@ -75,7 +75,7 @@ void LayoutSettingsControls(HWND hwnd, DialogContext& ctx) noexcept {
             case kIdBtnExportConfig: dips = 156; break;
             case kIdBtnBrowsePrimaryDict: dips = 104; break;
             case kIdBtnDictManager: dips = 180; break;
-            case kIdBtnCandidateFont: dips = 128; break;
+            case kIdBtnCandidateFont: dips = 152; break;
             case kIdBtnOpenGitHub: dips = 124; break;
             default: return 0;
         }
@@ -256,7 +256,8 @@ void LayoutSettingsControls(HWND hwnd, DialogContext& ctx) noexcept {
             const bool space_enter = id == kIdLblSpaceEnter;
             const bool skin_row = id == kIdLblImeSkin;
             const int label_inset = id == kIdLblEnglishSwitch || space_enter ||
-                id == kIdLblUnderlineStyle || skin_row
+                id == kIdLblUnderlineStyle || skin_row ||
+                id == kIdLblUiTextScale || id == kIdLblUiLang
                 ? toggle_label_inset : 0;
             const int row_combo_width = space_enter
                 ? std::min(content_width, ctx.d2d.ScalePx(settings_layout::kSpaceEnterComboWidth))

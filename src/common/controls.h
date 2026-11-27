@@ -170,7 +170,8 @@ void DrawFluentPushButton(
     const DRAWITEMSTRUCT& dis,
     const FluentD2DThemeContext& d2d,
     bool is_primary,
-    D2D1_COLOR_F outer_bg, const wchar_t* disabled_suffix = nullptr) noexcept;
+    D2D1_COLOR_F outer_bg, const wchar_t* disabled_suffix = nullptr,
+    bool show_dropdown = false) noexcept;
 
 void DrawFluentToggleOrRadioRow(
     const DRAWITEMSTRUCT& dis,

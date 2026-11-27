@@ -117,23 +117,24 @@ void UpdateSettingsPageLabels(HWND hwnd, const DialogContext& ctx) noexcept {
 
 void UpdateCandidateFontLabel(HWND hwnd, const DialogContext& ctx) noexcept {
     const auto language = GetSelectedUiLanguageFromCombo(hwnd, ctx);
+    const auto* default_label = LocalizedUiText(language, L"字体", L"Font");
     const auto& font = ctx.preview_candidate_font;
     std::array<wchar_t, 128> label{};
     if (font.family.empty() && font.point_size == 0 &&
         font.weight == CandidateFontWeight::Auto && !font.italic) {
-        wcscpy_s(label.data(), label.size(), LocalizedUiText(language, L"字体…", L"Font..."));
+        wcscpy_s(label.data(), label.size(), default_label);
     } else {
+        const auto* family_label = SettingsCandidateFontDisplayName(font.family, language);
         const int result = font.point_size != 0
             ? swprintf_s(label.data(), label.size(),
                 LocalizedUiText(language, L"%ls %u 磅", L"%ls %u pt"),
-                font.family.empty() ? LocalizedUiText(language, L"自动", L"Auto") : font.family.c_str(),
+                font.family.empty() ? LocalizedUiText(language, L"自动", L"Auto") : family_label,
                 gsl::narrow_cast<unsigned int>(font.point_size))
             : swprintf_s(label.data(), label.size(), L"%ls",
-                font.family.empty() ? LocalizedUiText(language, L"字体…", L"Font...") :
-                    font.family.c_str());
+                font.family.empty() ? default_label : family_label);
         if (result < 0) {
             QIQI_LOG_WARN("Candidate font button label exceeded its buffer");
-            wcscpy_s(label.data(), label.size(), LocalizedUiText(language, L"字体…", L"Font..."));
+            wcscpy_s(label.data(), label.size(), default_label);
         }
     }
     if (!font.family.empty() && !CandidateFontFamilyAvailable(font.family)) {

@@ -258,7 +258,7 @@ void HandleSettingsCommand(HWND hwnd, WPARAM wparam, DialogContext& ctx) {
             return;
         case kIdBtnCandidateFont:
             if (HIWORD(wparam) == BN_CLICKED) {
-                std::ignore = PromptSettingsCandidateFont(hwnd, ctx);
+                std::ignore = ShowSettingsCandidateFontMenu(hwnd, ctx);
             }
             return;
         case kIdComboUiTextScale:

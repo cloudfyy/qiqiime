@@ -16,6 +16,10 @@
 #include <span>
 #include <optional>
 
+namespace qiqi {
+class ToolCommandUi;
+}
+
 namespace qiqi::settings_detail {
 
 struct DialogContext;
@@ -254,6 +258,7 @@ struct DialogContext {
     QiQiConfig* config = nullptr;
     QiQiConfig baseline_config{};
     bool transfer_in_progress = false;
+    ToolCommandUi* active_font_menu = nullptr;
     std::wstring custom_primary_dict_path;
     PrimaryDict last_valid_primary_dict = PrimaryDict::Jidian;
     uint64_t config_registry_sequence = 0;
@@ -312,8 +317,12 @@ void ReportSkinConfigurationFailure(HWND hwnd, UiLanguage language, HRESULT resu
 using CandidateFontChooser = BOOL(WINAPI*)(CHOOSEFONTW*);
 bool PromptSettingsCandidateFont(
     HWND hwnd, DialogContext& ctx, CandidateFontChooser chooser = &::ChooseFontW) noexcept;
+bool ShowSettingsCandidateFontMenu(
+    HWND hwnd, DialogContext& ctx, CandidateFontChooser chooser = &::ChooseFontW,
+    gsl::not_null<decltype(&::TrackPopupMenuEx)> track_menu = &::TrackPopupMenuEx) noexcept;
 void EnsureSettingsControlVisible(HWND hwnd, HWND child, DialogContext& ctx) noexcept;
 void UpdateSettingsPageLabels(HWND hwnd, const DialogContext& ctx) noexcept;
+const wchar_t* SettingsCandidateFontDisplayName(const std::wstring& family, UiLanguage language) noexcept;
 void UpdateCandidateFontLabel(HWND hwnd, const DialogContext& ctx) noexcept;
 void DrawSettingsCandidatePreview(const DRAWITEMSTRUCT& item, const DialogContext& ctx) noexcept;
 int MeasureSettingsCandidatePreviewHeight(HWND preview, int width, const DialogContext& ctx) noexcept;

@@ -132,6 +132,10 @@ void TestSettingsTextAlignment() {
                 QIQI_TEST_CHECK(preview.left == candidate_text_left && preview.right == control_right);
                 QIQI_TEST_CHECK(preview.bottom - preview.top < ScalePxByDpi(150, dpi));
                 SelectSettingsPage(dialog.Get(), *context, SettingsPage::Display);
+                const LONG display_text_left = bounds(kIdChkEasyReading).left +
+                    FluentToggleLabelInset(context->d2d);
+                QIQI_TEST_CHECK(bounds(kIdLblUiTextScale).left == display_text_left);
+                QIQI_TEST_CHECK(bounds(kIdLblUiLang).left == display_text_left);
                 QIQI_TEST_CHECK(bounds(kIdComboUiTheme).right == control_right);
                 QIQI_TEST_CHECK(bounds(kIdComboUiTextScale).right == control_right);
                 QIQI_TEST_CHECK(bounds(kIdComboUiLang).right == control_right);

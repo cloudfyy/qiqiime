@@ -10,6 +10,7 @@
 #include <stdexcept>
 #include <system_error>
 #include <cwctype>
+#include <utility>
 #include <uxtheme.h>
 
 namespace qiqi {
@@ -100,9 +101,10 @@ void ToolCommandUi::SetMenu(HWND window, std::span<const ToolMenu> menus) {
     ::DrawMenuBar(window);
 }
 
-void ToolCommandUi::AppendMenuCommand(HMENU menu, const ToolCommand& command, bool radio, MenuItems& items) {
+void ToolCommandUi::AppendMenuCommand(
+    HMENU menu, const ToolCommand& command, bool radio, MenuItems& items, HFONT font) {
     auto item = std::make_unique<MenuItem>(
-        MenuItem{menu, command.id, command.text, 0, false, command.id == 0, radio || command.radio});
+        MenuItem{menu, command.id, command.text, 0, false, command.id == 0, radio || command.radio, font});
     MENUITEMINFOW info{};
     info.cbSize = sizeof(info);
     info.fMask = MIIM_FTYPE | MIIM_ID | MIIM_STRING | MIIM_STATE | MIIM_DATA;
@@ -116,21 +118,31 @@ void ToolCommandUi::AppendMenuCommand(HMENU menu, const ToolCommand& command, bo
     items.push_back(std::move(item));
 }
 
-UINT ToolCommandUi::TrackContextMenu(HWND window, POINT point, std::span<const ToolCommand> commands) {
+UINT ToolCommandUi::TrackContextMenu(
+    HWND window, POINT point, std::span<const ToolCommand> commands,
+    const FluentD2DThemeContext* preview_theme, TPMPARAMS* placement,
+    gsl::not_null<decltype(&::TrackPopupMenuEx)> track_menu) {
     // Item storage and background outlive the synchronous native menu loop, including its draw callbacks.
     MenuItems items;
     const ScopedMenu menu(::CreatePopupMenu());
     if (!menu)
         Fail("CreatePopupMenu", ::GetLastError());
-    RefreshMenuAppearance(window, ::GetDpiForWindow(window));
+    const auto* previous_theme = std::exchange(context_theme_, preview_theme);
+    const auto restore_theme = gsl::finally([this, previous_theme]() noexcept { context_theme_ = previous_theme; });
+    RefreshMenuAppearance(window, preview_theme ? preview_theme->dpi : ::GetDpiForWindow(window));
     for (const auto& command : commands)
-        AppendMenuCommand(menu.Get(), command, false, items);
+        AppendMenuCommand(menu.Get(), command, false, items, command.popup_font);
     const auto* previous = context_items_;
     context_items_ = &items;
     const auto restore = gsl::finally([this, previous]() noexcept { context_items_ = previous; });
     ApplyMenuBackground(menu.Get());
-    return gsl::narrow_cast<UINT>(::TrackPopupMenu(menu.Get(), TPM_RETURNCMD | TPM_NONOTIFY | TPM_RIGHTBUTTON,
-        point.x, point.y, 0, window, nullptr));
+    const UINT flags = TPM_RETURNCMD | TPM_NONOTIFY | TPM_RIGHTBUTTON |
+        (placement ? TPM_RIGHTALIGN | TPM_VERTICAL : 0);
+    ::SetLastError(ERROR_SUCCESS);
+    const BOOL choice = track_menu(menu.Get(), flags, point.x, point.y, window, placement);
+    const DWORD error = ::GetLastError();
+    if (choice == 0 && error != ERROR_SUCCESS) Report("TrackPopupMenuEx", error);
+    return gsl::narrow_cast<UINT>(choice);
 }
 
 void ToolCommandUi::SetToolbar(HWND toolbar, std::span<const ToolCommand> commands) {
@@ -470,7 +482,8 @@ int ToolCommandUi::MenuScale(int px) const noexcept {
 }
 
 void ToolCommandUi::RefreshMenuAppearance(HWND window, UINT dpi) noexcept {
-    const auto preferences = NormalizeDisplayPreferences(GetDisplayPreferences(LoadConfig()));
+    const auto preferences = context_theme_ ? context_theme_->display_preferences :
+        NormalizeDisplayPreferences(GetDisplayPreferences(LoadConfig()));
     dpi = dpi ? dpi : 96u;
     bool font_changed = false;
     if (!menu_font_ || preferences != menu_preferences_ || dpi != menu_dpi_) {
@@ -483,7 +496,7 @@ void ToolCommandUi::RefreshMenuAppearance(HWND window, UINT dpi) noexcept {
     }
     menu_preferences_ = preferences;
     menu_dpi_ = dpi;
-    menu_appearance_ = ResolveDisplayAppearance(preferences);
+    menu_appearance_ = context_theme_ ? context_theme_->appearance : ResolveDisplayAppearance(preferences);
     if (font_changed) {
         InvalidateMenuMeasurements(menu_items_);
         if (context_items_) InvalidateMenuMeasurements(*context_items_);
@@ -564,6 +577,11 @@ const ToolCommandUi::MenuItem* ToolCommandUi::FindMenuItem(ULONG_PTR data) const
     return find(menu_items_);
 }
 
+HFONT ToolCommandUi::MenuItemFont(const MenuItem& item) const noexcept {
+    if (item.font) return item.font;
+    return menu_font_ ? menu_font_.Get() : static_cast<HFONT>(::GetStockObject(DEFAULT_GUI_FONT));
+}
+
 LRESULT ToolCommandUi::MeasureMenuItem(HWND window, MEASUREITEMSTRUCT& measure, const MenuItem& item) const noexcept {
     if (item.separator) {
         measure.itemWidth = gsl::narrow_cast<UINT>(MenuScale(kMenuCheckGutter + kMenuPaddingX));
@@ -571,8 +589,7 @@ LRESULT ToolCommandUi::MeasureMenuItem(HWND window, MEASUREITEMSTRUCT& measure, 
         return TRUE;
     }
     const ScopedWindowDC dc(window);
-    const ScopedSelectObject selected(dc.Get(), menu_font_ ? menu_font_.Get() :
-        static_cast<HFONT>(::GetStockObject(DEFAULT_GUI_FONT)));
+    const ScopedSelectObject selected(dc.Get(), MenuItemFont(item));
     RECT bounds{};
     if (!dc || !selected ||
         !::DrawTextW(dc.Get(), item.text.c_str(), -1, &bounds, DT_CALCRECT | DT_SINGLELINE)) {
@@ -600,8 +617,7 @@ LRESULT ToolCommandUi::DrawMenuItem(const DRAWITEMSTRUCT& draw, const MenuItem& 
         hot && menu_appearance_.high_contrast ? palette.selection_text :
         disabled ? palette.text_secondary : hot ? palette.selection_text : palette.text_primary;
     const ScopedSaveDC saved(draw.hDC);
-    const ScopedSelectObject selected(draw.hDC, menu_font_ ? menu_font_.Get() :
-        static_cast<HFONT>(::GetStockObject(DEFAULT_GUI_FONT)));
+    const ScopedSelectObject selected(draw.hDC, MenuItemFont(item));
     ::SetDCBrushColor(draw.hDC, background);
     ::FillRect(draw.hDC, &draw.rcItem, static_cast<HBRUSH>(::GetStockObject(DC_BRUSH)));
     if (item.separator) {

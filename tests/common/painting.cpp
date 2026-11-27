@@ -257,6 +257,24 @@ void TestReusableControls() {
                 QIQI_TEST_CHECK(::GetPixel(dc.Get(), 20, 16) == fill);
             }
         }
+        const auto check_dropdown_arrow = [&](const FluentD2DThemeContext& theme) {
+            dis.itemState = 0;
+            const auto background = ColorRefToD2DColor(theme.appearance.palette.surface_bg);
+            DrawFluentPushButton(dis, theme, false, background);
+            const COLORREF plain = ::GetPixel(dc.Get(), 226, 16);
+            DrawFluentPushButton(dis, theme, false, background, nullptr, true);
+            bool arrow_visible = false;
+            for (int y = 12; y <= 20; ++y) {
+                for (int x = 220; x <= 232; ++x) {
+                    arrow_visible |= ::GetPixel(dc.Get(), x, y) != plain;
+                }
+            }
+            QIQI_TEST_CHECK(arrow_visible);
+        };
+        check_dropdown_arrow(d2d);
+        FluentD2DThemeContext fallback;
+        fallback.appearance = d2d.appearance;
+        check_dropdown_arrow(fallback);
         {
             ::EnableWindow(action, FALSE);
             const auto reenable = gsl::finally([action]() noexcept { ::EnableWindow(action, TRUE); });

@@ -7,6 +7,7 @@
 #include "common/theme.h"
 #include "common/uiutil.h"
 
+#include <algorithm>
 #include <array>
 #include <cwchar>
 #include <gsl/gsl>
@@ -22,6 +23,33 @@ constexpr int kCardHeaderLeftInset = 24;
 constexpr int kCardHeaderTopOffset = 9;
 constexpr int kCardHeaderRightInset = 12;
 constexpr int kButtonCornerRadius = 6;
+constexpr int kDropdownButtonGutter = 24;
+
+std::array<POINT, 3> DropdownChevron(
+    const RECT& bounds, int gutter, const FluentD2DThemeContext& d2d) noexcept {
+    const LONG x = bounds.right - gutter / 2 - d2d.ScaleDipPx(2);
+    const LONG y = bounds.top + (bounds.bottom - bounds.top) / 2;
+    const int arm = std::min(gutter / 3, d2d.ScaleDipPx(4));
+    return {{{x - arm, y - arm / 2}, {x, y + arm / 2}, {x + arm, y - arm / 2}}};
+}
+
+void PaintGdiDropdownChevron(
+    HDC dc, const RECT& bounds, int gutter, COLORREF color, const FluentD2DThemeContext& d2d) noexcept {
+    const ScopedGdiHandle<HPEN> pen(::CreatePen(PS_SOLID, std::max(1, d2d.ScaleDipPx(1)), color));
+    if (!pen) {
+        QIQI_LOG_WARN("Fluent dropdown arrow pen creation failed");
+        return;
+    }
+    const ScopedSelectObject selected(dc, pen.Get());
+    if (!selected) {
+        QIQI_LOG_WARN("Fluent dropdown arrow pen selection failed (error={})", selected.Error());
+        return;
+    }
+    const auto points = DropdownChevron(bounds, gutter, d2d);
+    if (!::Polyline(dc, points.data(), gsl::narrow_cast<int>(points.size()))) {
+        QIQI_LOG_WARN("Fluent dropdown arrow painting failed");
+    }
+}
 } // namespace
 
 void DrawFluentCardGroup(
@@ -77,13 +105,17 @@ void DrawFluentPushButton(
     const DRAWITEMSTRUCT& dis,
     const FluentD2DThemeContext& d2d,
     bool is_primary,
-    D2D1_COLOR_F outer_bg, const wchar_t* disabled_suffix) noexcept {
+    D2D1_COLOR_F outer_bg, const wchar_t* disabled_suffix, bool show_dropdown) noexcept {
     if (!dis.hDC) {
         return;
     }
     const auto& palette = d2d.appearance.palette;
     const bool is_enabled = ::IsWindowEnabled(dis.hwndItem) != FALSE;
     const COLORREF disabled_text = DisabledControlText(d2d);
+    const int dropdown_gutter = show_dropdown
+        ? std::min(d2d.ScaleDipPx(kDropdownButtonGutter),
+            std::max(0, gsl::narrow_cast<int>(dis.rcItem.right - dis.rcItem.left) / 3))
+        : 0;
     if (d2d.appearance.system_high_contrast || !d2d.d2d_target || !d2d.fmt_btn) {
         const ScopedSaveDC saved(dis.hDC);
         const auto font = reinterpret_cast<HFONT>(::SendMessageW(dis.hwndItem, WM_GETFONT, 0, 0));
@@ -96,11 +128,17 @@ void DrawFluentPushButton(
         std::array<wchar_t, kFallbackButtonTextCapacity> text{};
         ::GetWindowTextW(dis.hwndItem, text.data(), gsl::narrow_cast<int>(text.size()));
         if (!is_enabled && d2d.appearance.high_contrast) paint::AppendDisabledSuffix(text, disabled_suffix);
-        ::SetTextColor(dis.hDC, !is_enabled ? disabled_text :
-            (is_primary ? palette.selection_text : palette.text_primary));
+        const COLORREF text_color = !is_enabled ? disabled_text :
+            (is_primary ? palette.selection_text : palette.text_primary);
+        ::SetTextColor(dis.hDC, text_color);
         ::SetBkMode(dis.hDC, TRANSPARENT);
         ::InflateRect(&rect, -4, -4);
-        ::DrawTextW(dis.hDC, text.data(), -1, &rect, DT_CENTER | DT_WORDBREAK);
+        RECT text_rect = rect;
+        text_rect.right -= dropdown_gutter;
+        ::DrawTextW(dis.hDC, text.data(), -1, &text_rect, DT_CENTER | DT_WORDBREAK);
+        if (dropdown_gutter > 0) {
+            PaintGdiDropdownChevron(dis.hDC, dis.rcItem, dropdown_gutter, text_color, d2d);
+        }
         if (is_enabled && (dis.itemState & ODS_FOCUS)) {
             ::InflateRect(&rect, -3, -3);
             ::DrawFocusRect(dis.hDC, &rect);
@@ -163,12 +201,26 @@ void DrawFluentPushButton(
     ::GetWindowTextW(dis.hwndItem, btn_text.data(), gsl::narrow_cast<int>(btn_text.size()));
     if (!is_enabled && d2d.appearance.high_contrast) paint::AppendDisabledSuffix(btn_text, disabled_suffix);
     if (d2d.fmt_btn && txt_brush && gsl::at(btn_text, 0) != L'\0') {
+        auto text_rect = rc;
+        text_rect.right -= static_cast<float>(dropdown_gutter);
         d2d.d2d_target->DrawTextW(
             btn_text.data(),
             gsl::narrow_cast<UINT32>(wcslen(btn_text.data())),
             d2d.fmt_btn.Get(),
-            rc,
-            txt_brush.Get());
+            text_rect,
+            txt_brush.Get(),
+            show_dropdown ? D2D1_DRAW_TEXT_OPTIONS_CLIP : D2D1_DRAW_TEXT_OPTIONS_NONE);
+    }
+    if (dropdown_gutter > 0 && txt_brush) {
+        const auto [first, middle, last] = DropdownChevron(
+            RECT{0, 0, dis.rcItem.right - dis.rcItem.left, dis.rcItem.bottom - dis.rcItem.top},
+            dropdown_gutter, d2d);
+        const auto point = [](POINT value) noexcept {
+            return D2D1::Point2F(static_cast<float>(value.x), static_cast<float>(value.y));
+        };
+        const float stroke = static_cast<float>(std::max(1, d2d.ScaleDipPx(1))) + 0.4f;
+        d2d.d2d_target->DrawLine(point(first), point(middle), txt_brush.Get(), stroke);
+        d2d.d2d_target->DrawLine(point(middle), point(last), txt_brush.Get(), stroke);
     }
     if (is_enabled && (dis.itemState & ODS_FOCUS) != 0 && border_brush) {
         const auto focus = CreateSolidBrush(d2d.d2d_target.Get(), ColorRefToD2DColor(palette.focus_color));

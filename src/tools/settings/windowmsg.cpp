@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "tools/settings/internal.h"
+#include "common/toolbar.h"
 #include "tools/settings/transfer.h"
 #include "common/dlgutil.h"
 #include "common/dictui.h"
@@ -131,6 +132,24 @@ LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
     auto* ctx = BindOrGetWindowUserData<DialogContext>(hwnd, msg, lparam);
     if (!ctx || msg == WM_NCCREATE) {
         return ::DefWindowProcW(hwnd, msg, wparam, lparam);
+    }
+    if (ctx->active_font_menu) {
+        if (msg == WM_THEMECHANGED || msg == WM_SETTINGCHANGE || msg == WM_DPICHANGED) {
+            if (!::EndMenu()) {
+                QIQI_LOG_WARN("Candidate font menu dismissal failed (error={})", ::GetLastError());
+            }
+            if (reinterpret_cast<DialogContext*>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA)) != ctx) return 0;
+        } else if (msg == WM_DRAWITEM || msg == WM_MEASUREITEM || msg == WM_MENUCHAR) {
+            try {
+                if (const auto handled = ctx->active_font_menu->HandleMessage(
+                        hwnd, msg, wparam, lparam, ctx->font.Get(), ctx->d2d)) {
+                    return *handled;
+                }
+            } catch (const std::bad_alloc&) {
+                QIQI_LOG_WARN("Candidate font menu message allocation failed");
+                return 0;
+            }
+        }
     }
     switch (msg) {
         case WM_GETMINMAXINFO:
@@ -328,7 +347,8 @@ LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
                         const D2D1_COLOR_F outer_bg = ColorRefToD2DColor(page_button
                             ? ctx->d2d.appearance.palette.surface_bg
                             : ctx->d2d.appearance.palette.window_bg);
-                        DrawFluentPushButton(*dis, ctx->d2d, dis->CtlID == kIdBtnOk, outer_bg, disabled_suffix);
+                        DrawFluentPushButton(*dis, ctx->d2d, dis->CtlID == kIdBtnOk, outer_bg, disabled_suffix,
+                            dis->CtlID == kIdBtnCandidateFont);
                     } else {
                         const bool is_radio =
                             (dis->CtlID >= kIdRadioJidian && dis->CtlID <= kIdRadioBuiltin) ||
