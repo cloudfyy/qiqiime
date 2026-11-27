@@ -175,14 +175,14 @@ HRESULT PopulateSettingsComboItems(HWND hwnd, UiLanguage lang) noexcept {
     const std::array candidate_layout{str.dlg_candidate_horizontal, str.dlg_candidate_vertical};
     const auto& display = ResolveUiLanguage(lang) == UiLanguage::EnUs ? kDisplayEn : kDisplayZh;
     using ComboItems = std::pair<int, std::span<const wchar_t* const>>;
-    for (const auto [id, items] : std::array{
+    for (const auto& combo : std::array{
              ComboItems{kIdComboUiLang, languages}, ComboItems{kIdComboPageSize, page_sizes},
              ComboItems{kIdComboCandidateLayout, candidate_layout}, ComboItems{kIdComboUnderlineStyle, underline},
              ComboItems{kIdComboEnglishSwitch, english_switch}, ComboItems{kIdComboSpaceEnter, str.dlg_space_enter_modes},
              ComboItems{kIdComboUiTheme, display.themes}, ComboItems{kIdComboUiTextScale, text_scales}}) {
-        const HRESULT result = ReplaceComboBoxItems(::GetDlgItem(hwnd, id), items);
+        const HRESULT result = ReplaceComboBoxItems(::GetDlgItem(hwnd, combo.first), combo.second);
         if (FAILED(result)) {
-            QIQI_LOG_WARN("Settings combo {} item replacement failed (hr=0x{:08X})", id,
+            QIQI_LOG_WARN("Settings combo {} item replacement failed (hr=0x{:08X})", combo.first,
                 gsl::narrow_cast<unsigned long>(result));
             return result;
         }
