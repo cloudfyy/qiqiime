@@ -1,3 +1,46 @@
+# QiQiIME 1.3.6 五笔繁简输出与离线反查（2026-11-28）
+
+数字版本：`1.3.6`；发行标签：`v1.3.6`。安装包、运行组件和调试符号
+以 Release 工作流实际发布的附件为准。
+
+## 主要变更
+
+- **繁简输出**：「输入习惯 → 繁简输出」可选简体中文（默认）和繁体中文。
+  使用 OpenCC 通用字词数据离线转换，候选与上屏一致；不改写词库，也不改变
+  四码唯一上屏的判定。
+- **五笔辅助输入**：可选全码练习和以词定字。可将首码 `z` 从临时英文
+  改为离线拼音反查，候选会提示当前词库里的五笔码。
+- **中英切换**：可选单按 CapsLock，默认关闭，与轻按 Shift 独立。
+- **设置**：统一开关文字字号，避免点击「显示状态条」和反馈开关的标签误触发；
+  缩短 Space/Enter 的英文选项。
+- **AppContainer**：明确区分没有配置读取能力与真的同步失败，并验证有
+  `registryRead` 的宿主能读取置顶顺序。不扩大应用包权限。
+
+## 验证边界
+
+- 繁简输出改动在 x64、x86 Release 各通过 8 项定向测试。标签工作流
+  会重新构建、测试和打包；自动测试不替代实际安装、升级和卸载验收。
+
+## English
+
+Source version `1.3.6`; release tag `v1.3.6`.
+
+- Choose Simplified Chinese (default) or Traditional Chinese under **Input →
+  Chinese output**. OpenCC data converts Wubi candidates and commits offline
+  without rewriting dictionaries or changing four-key auto-commit rules.
+- Enable full-code practice or pick a character from a phrase. Leading `z` can
+  optionally look up Wubi codes offline by pinyin instead of starting temporary
+  English.
+- Optionally use Caps Lock to switch Chinese/English independently of Shift.
+  The option is off by default.
+- Align Settings switch labels, prevent accidental toggles from status-bar and
+  feedback labels, and keep the English Space/Enter choices on one line.
+- Distinguish built-in AppContainer defaults from sync errors, and verify
+  pinned order in a `registryRead` host without granting broader access.
+- Eight focused Release tests passed per architecture for the output change.
+  The tag workflow builds, tests, and packages again; installation, upgrades,
+  and uninstall still need real-machine checks.
+
 # QiQiIME 1.3.5 五笔输入与设置改进（2026-11-27）
 
 数字版本：`1.3.5`；发行标签：`v1.3.5`。安装包、运行组件和调试符号

@@ -11,10 +11,10 @@ the native Text Services Framework (TSF).
 ## Downloads and supported systems
 
 Download installers from [GitHub Releases](https://github.com/cloudfyy/qiqiime/releases).
-The source version is **1.3.5**, with release tag `v1.3.5`, and
+The source version is **1.3.6**, with release tag `v1.3.6`, and
 changes recorded in the [release notes](docs/release-notes.md). Release CI
-rebuilds, tests, and packages the tagged source. Until `v1.3.5` publishes,
-the `v1.3.4` release assets remain available.
+rebuilds, tests, and packages the tagged source. Until `v1.3.6` publishes,
+the `v1.3.5` release assets remain available.
 Historical tags and assets remain unchanged.
 The files actually attached to a release are authoritative; a tag alone does not
 mean that its build or publication succeeded.
@@ -37,6 +37,10 @@ and AppContainer guides are available in English.
 
 ## Features
 
+- **1.3.6 Chinese output and offline lookup:** Choose Simplified Chinese
+  (default) or Traditional Chinese. Optional features include full-code practice,
+  phrase-character selection, leading-`z` pinyin lookup, and Caps Lock switching.
+  Settings labels and AppContainer diagnostics have also been improved.
 - **1.3.5 Wubi and Settings improvements:** Choose from three Space/Enter
   behaviors or enable strict single-character candidates, with existing defaults
   unchanged. Standalone tools honor the saved UI language, Settings previews
