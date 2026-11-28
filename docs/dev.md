@@ -709,8 +709,11 @@ The script first builds and tests both architectures, then stages:
 Without WiX, ZIP packaging still runs but MSI generation is skipped with a warning.
 When MSI files are generated, [packages.ps1](../tests/installer/packages.ps1)
 checks their databases for architecture, upgrade/component identity, payload,
-shortcuts, and registration order. Ordinary CTest checks sources without creating
-MSI files; it does not certify real installation or upgrade behavior.
+shortcuts, and registration order. When adding a [WiX component](../installer/QiQiIME.wxs),
+update its expected GUID and payload checks without changing existing component
+GUIDs. The expected shared index and license lists contribute to the file count.
+Ordinary CTest checks sources without creating MSI files; it does not certify real
+installation or upgrade behavior.
 
 The MSI embeds `QiQiIMEInstallerActions.dll`, not a runtime installation file.
 Interactive uninstall uses one native data-choice page for full/basic/reduced

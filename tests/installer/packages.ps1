@@ -99,17 +99,20 @@ try {
                         "CmpLicenses" { "0107" }
                         "CmpFullCodeIndex" { "0108" }
                         "CmpPinyinIndex" { "0109" }
+                        "CmpConversionIndex" { "0110" }
                         default { throw "Unexpected component: $($component.Component)" }
                     }
                     Assert-True ($component.ComponentId -eq "{8E7B9D31-5A42-4C81-9F11-$guidPrefix$suffix}") "Component upgrade identity changed in $path"
                 }
                 $files = @(Read-MsiTable $database "File" @("File", "Component_", "FileName"))
-                $expectedNonLicenseFileCount = if ($arch -eq "x64") { 31 } else { 24 }
-                $expectedFileCount = $expectedNonLicenseFileCount + $expectedLicenses.Count
-                Assert-True ($files.Count -eq $expectedFileCount) "Unexpected payload count in ${path}: expected $expectedFileCount, found $($files.Count)."
                 $indexComponents = @{
-                    "full.idx" = "CmpFullCodeIndex"; "pinyin.idx" = "CmpPinyinIndex"; "conv.idx" = "CmpConversionIndex"
+                    "full.idx" = "CmpFullCodeIndex"
+                    "pinyin.idx" = "CmpPinyinIndex"
+                    "conv.idx" = "CmpConversionIndex"
                 }
+                $expectedBaseFileCount = if ($arch -eq "x64") { 29 } else { 22 }
+                $expectedFileCount = $expectedBaseFileCount + $indexComponents.Count + $expectedLicenses.Count
+                Assert-True ($files.Count -eq $expectedFileCount) "Unexpected payload count in ${path}: expected $expectedFileCount, found $($files.Count)."
                 foreach ($name in $indexComponents.Keys) {
                     $indexFile = @($files | Where-Object { $_.FileName.Split('|')[-1] -eq $name })
                     $indexComponent = @($components | Where-Object { $_.Component -eq $indexComponents[$name] })
