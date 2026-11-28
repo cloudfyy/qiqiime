@@ -127,7 +127,7 @@ void TestSettingsZipBackupFlow() {
     archived.phrase_char_selection = true;
     archived.enable_z_pinyin_lookup = true;
     archived.caps_lock_toggle_mode = true;
-    archived.output_conversion = OutputConversion::TraditionalToSimplified;
+    archived.output_conversion = OutputConversion::SimplifiedToTraditional;
     archived.commit_on_english_switch = false;
     QIQI_TEST_CHECK(WriteFileAtomically(
         custom, codec::AsByteSpan(std::string_view("abcd 自定义主词条\n"))));

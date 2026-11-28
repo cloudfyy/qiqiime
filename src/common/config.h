@@ -55,7 +55,7 @@ enum class WubiSpaceEnterMode : uint8_t {
 };
 
 enum class OutputConversion : uint8_t {
-    Off = 0,
+    Off = 0, // Internal engine fallback, not a settings choice.
     SimplifiedToTraditional = 1,
     TraditionalToSimplified = 2
 };
@@ -193,7 +193,7 @@ struct QiQiConfig {
     bool enable_key_sound = false;
     bool up_down_page_turn = false;
     WubiSpaceEnterMode space_enter_mode = WubiSpaceEnterMode::SpaceSelectEnterCode;
-    OutputConversion output_conversion = OutputConversion::Off;
+    OutputConversion output_conversion = OutputConversion::TraditionalToSimplified;
     UiLanguage ui_language = UiLanguage::Auto;
     CompositionUnderlineStyle underline_style = CompositionUnderlineStyle::Dot;
     bool bold_underline = false;
@@ -308,7 +308,8 @@ inline constexpr auto kConfigFields = std::tuple{
     ConfigField{"phrase_char_selection", L"PhraseCharSelection", &QiQiConfig::phrase_char_selection, 0, 1, true},
     ConfigField{"enable_z_pinyin_lookup", L"EnableZPinyinLookup", &QiQiConfig::enable_z_pinyin_lookup, 0, 1, true},
     ConfigField{"caps_lock_toggle_mode", L"CapsLockToggleMode", &QiQiConfig::caps_lock_toggle_mode, 0, 1, true},
-    ConfigField{"output_conversion", L"OutputConversion", &QiQiConfig::output_conversion, 0,
+    ConfigField{"output_conversion", L"OutputConversion", &QiQiConfig::output_conversion,
+        std::to_underlying(OutputConversion::SimplifiedToTraditional),
         std::to_underlying(OutputConversion::TraditionalToSimplified), true}
 };
 

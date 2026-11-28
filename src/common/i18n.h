@@ -77,7 +77,7 @@ struct UiStrings {
     const wchar_t* dlg_lbl_space_enter;
     std::array<const wchar_t*, 3> dlg_space_enter_modes;
     const wchar_t* dlg_lbl_output_conversion;
-    std::array<const wchar_t*, 3> dlg_output_conversion_modes;
+    std::array<const wchar_t*, 2> dlg_output_conversion_modes;
     const wchar_t* dlg_chk_up_down_page_turn;
     const wchar_t* dlg_chk_status_bar;
     const wchar_t* dlg_chk_beep_empty4;
@@ -198,7 +198,7 @@ inline constexpr UiStrings kZhCnStrings = {
     L"五笔组合时的空格/回车:",
     {L"空格选字，回车输出编码", L"空格选字，回车清码", L"回车选字，空格清码"},
     L"繁简输出:",
-    {L"不转换", L"简入繁出", L"繁入简出"},
+    {L"简体中文", L"繁体中文"},
     L"使用 ↑ / ↓ 方向键翻页",
     L"显示状态条",
     L"四码空码时发出提示音",
@@ -345,7 +345,7 @@ inline constexpr UiStrings kEnUsStrings = {
     L"Space/Enter in Wubi:",
     {L"Space: Select / Enter: Code", L"Space: Select / Enter: Clear", L"Enter: Select / Space: Clear"},
     L"Chinese output:",
-    {L"No conversion", L"Simplified to Traditional", L"Traditional to Simplified"},
+    {L"Simplified Chinese", L"Traditional Chinese"},
     L"Turn candidate pages with Up/Down keys",
     L"Show status bar",
     L"Beep on empty 4-letter code",

@@ -370,7 +370,7 @@ void HandleSettingsCommand(HWND hwnd, WPARAM wparam, DialogContext& ctx) {
                         return;
                     }
                 }
-                if (edited.output_conversion != OutputConversion::Off) {
+                if (edited.output_conversion != ctx.baseline_config.output_conversion) {
                     ConversionIndex index;
                     if (!log::CheckHResult(index.OpenBundled(), "Settings::ConversionIndex")) {
                         ShowSettingsMessage(hwnd, edited.ui_language, SettingsMessageKind::ConversionUnavailable);

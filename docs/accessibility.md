@@ -121,7 +121,7 @@ Settings 与词库管理器复用同一套备份执行器和同一恢复语义�
 | `primary_dict` | `jidian`, `haifeng`, `builtin`, `custom` |
 | `candidate_layout` | `horizontal`, `vertical` |
 | `space_enter_mode` | `space-select-enter-code`, `space-select-enter-clear`, `enter-select-space-clear` |
-| `output_conversion` | `off`, `simplified-to-traditional`, `traditional-to-simplified` |
+| `output_conversion` | `traditional-to-simplified`（简体中文）, `simplified-to-traditional`（繁体中文） |
 | `ui_language` | `auto`, `zh-CN`, `en-US` |
 | `underline_style` | `dot`, `solid`, `dash`, `squiggle`, `none` |
 | `ui_theme` | `system`, `light`, `dark`, `high_contrast` |
@@ -143,8 +143,8 @@ Settings 与词库管理器复用同一套备份执行器和同一恢复语义�
 恢复时需要写入启用状态则先验证本机索引，失败不会修改设置或词库。
 `caps_lock_toggle_mode` 是独立于 Shift 的中英切换开关，默认为 `false`。
 旧备份没有该字段时保留本机值；“恢复默认设置”令草稿中的开关关闭。
-`output_conversion` 默认为 `off`。旧备份缺字段时保留本机模式；恢复默认将草稿设为不转换。
-ZIP 只保存模式，不保存随程序分发的繁简转换索引；恢复需启用转换时先校验本机索引。
+`output_conversion` 默认为简体中文。备份缺字段时保留本机模式；恢复默认将草稿设为简体中文。
+ZIP 只保存模式，不保存随程序分发的繁简转换索引；保存或恢复需要切换输出时先校验本机索引。
 只支持[共用配置字段表](../src/common/config.h)列出的标量和字符串字段，
 包括窗口未单独展示的默认输入模式与临时英文开关；机器路径、配置序列号和
 任意注册表项不进入备份。注册表序列号不会回滚到旧值，成功保存会在当前值上

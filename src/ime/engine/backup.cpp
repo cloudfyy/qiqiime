@@ -321,8 +321,9 @@ BackupRestoreResult CompleteBackup::RestoreFile(
     BackupArchivePlan plan;
     BackupArchiveReadStage read_stage =
         BackupArchiveReadStage::Read;
+    const auto current = LoadConfig();
     const HRESULT read_result = ReadBackupArchiveFileResult(
-        path, LoadConfig(), custom_primary_path, plan, read_stage);
+        path, current, custom_primary_path, plan, read_stage);
     if (FAILED(read_result)) {
         result.stage = read_stage == BackupArchiveReadStage::Read
             ? BackupRestoreStage::Read
@@ -347,7 +348,7 @@ BackupRestoreResult CompleteBackup::RestoreFile(
             return result;
         }
     }
-    if (plan.config_changed && plan.config.output_conversion != OutputConversion::Off) {
+    if (plan.config.output_conversion != current.output_conversion) {
         ConversionIndex index;
         if (const HRESULT opened = index.OpenBundled(); FAILED(opened)) {
             std::ignore = log::CheckHResult(opened, "Backup restore::ConversionIndex");

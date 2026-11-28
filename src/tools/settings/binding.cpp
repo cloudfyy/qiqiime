@@ -20,6 +20,9 @@
 namespace qiqi::settings_detail {
 namespace {
 
+constexpr std::array kOutputConversionModes{
+    OutputConversion::TraditionalToSimplified, OutputConversion::SimplifiedToTraditional};
+
 std::optional<UiLanguage> ReadSettingsLanguageSelection(HWND hwnd) noexcept {
     const LRESULT index = ::SendDlgItemMessageW(hwnd, kIdComboUiLang, CB_GETCURSEL, 0, 0);
     if (index >= 0 && std::cmp_less(index, kSettingsLanguageOptions.size())) {
@@ -288,6 +291,12 @@ HRESULT ApplySettingsControls(HWND hwnd, DialogContext& ctx, const QiQiConfig& c
     const size_t language_index = SettingsLanguageIndex(config.ui_language);
     const auto language = gsl::at(kSettingsLanguageOptions, language_index).value;
     const auto display = NormalizeDisplayPreferences(GetDisplayPreferences(config));
+    const auto output_mode = std::ranges::find(kOutputConversionModes, config.output_conversion);
+    if (output_mode == kOutputConversionModes.end()) {
+        QIQI_LOG_WARN("Settings output conversion mode is invalid (value={})",
+            std::to_underlying(config.output_conversion));
+        return E_INVALIDARG;
+    }
     // An earlier failed replacement may have left a list incomplete.
     if (const HRESULT result = PopulateSettingsComboItems(hwnd, language); FAILED(result)) return result;
 
@@ -301,7 +310,8 @@ HRESULT ApplySettingsControls(HWND hwnd, DialogContext& ctx, const QiQiConfig& c
              ComboSelection{kIdComboUnderlineStyle, gsl::narrow_cast<WPARAM>(underline)},
              ComboSelection{kIdComboEnglishSwitch, config.commit_on_english_switch ? 0u : 1u},
              ComboSelection{kIdComboSpaceEnter, std::to_underlying(config.space_enter_mode)},
-             ComboSelection{kIdComboOutputConversion, std::to_underlying(config.output_conversion)},
+             ComboSelection{kIdComboOutputConversion, gsl::narrow_cast<WPARAM>(
+                 output_mode - kOutputConversionModes.begin())},
              ComboSelection{kIdComboUiTheme, gsl::narrow_cast<WPARAM>(std::to_underlying(display.theme))},
              ComboSelection{kIdComboUiTextScale, gsl::narrow_cast<WPARAM>(std::to_underlying(display.text_scale))}}) {
         if (const HRESULT result = SelectSettingsComboItem(hwnd, id, index); FAILED(result)) return result;
@@ -479,11 +489,11 @@ HRESULT settings_detail::ReadSettingsDraft(HWND hwnd, QiQiConfig& config) noexce
     }
     const HWND conversion = ::GetDlgItem(hwnd, kIdComboOutputConversion);
     const LRESULT mode = conversion ? ::SendMessageW(conversion, CB_GETCURSEL, 0, 0) : CB_ERR;
-    if (mode < 0 || mode > std::to_underlying(OutputConversion::TraditionalToSimplified)) {
+    if (mode < 0 || !std::cmp_less(mode, kOutputConversionModes.size())) {
         QIQI_LOG_WARN("Settings output conversion selection unavailable (result={})", mode);
         return E_FAIL;
     }
-    config.output_conversion = OutputConversion{gsl::narrow_cast<uint8_t>(mode)};
+    config.output_conversion = gsl::at(kOutputConversionModes, gsl::narrow_cast<size_t>(mode));
     const LRESULT theme = ::SendDlgItemMessageW(hwnd, kIdComboUiTheme, CB_GETCURSEL, 0, 0);
     const LRESULT scale = ::SendDlgItemMessageW(hwnd, kIdComboUiTextScale, CB_GETCURSEL, 0, 0);
     if (theme >= 0 && theme <= std::to_underlying(UiTheme::HighContrast)) {

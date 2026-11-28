@@ -406,6 +406,7 @@ void TestConfigJson() {
         InvalidCase{R"("space_enter_mode":2)", ConfigJsonIssue::InvalidType, "settings.space_enter_mode"},
         InvalidCase{R"("space_enter_mode":"unknown")", ConfigJsonIssue::InvalidEnum, "settings.space_enter_mode"},
         InvalidCase{R"("output_conversion":"unknown")", ConfigJsonIssue::InvalidEnum, "settings.output_conversion"},
+        InvalidCase{R"("output_conversion":"off")", ConfigJsonIssue::OutOfRange, "settings.output_conversion"},
         InvalidCase{R"("ui_theme":1)", ConfigJsonIssue::InvalidType, "settings.ui_theme"},
         InvalidCase{R"("ui_theme":"Dark")", ConfigJsonIssue::InvalidEnum, "settings.ui_theme"},
         InvalidCase{R"("ui_theme":null)", ConfigJsonIssue::InvalidType, "settings.ui_theme"},

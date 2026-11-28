@@ -196,8 +196,8 @@ including user and pinned phrases, without changing the dictionary. Unique
 four-code auto-commit uses the filtered exact matches. Temporary English,
 punctuation keys, and dictionary editing are unchanged.
 
-**Chinese output** under **Settings → Input** offers No conversion (the default),
-Simplified to Traditional, and Traditional to Simplified. Wubi candidates and
+**Chinese output** under **Settings → Input** offers Simplified Chinese (the
+default) or Traditional Chinese. Wubi candidates and
 commits use the same offline conversion from [OpenCC data](./THIRD_PARTY_NOTICES.md#opencc-simplifiedtraditional-conversion-data).
 Identical outputs appear once, but four-code auto-commit still counts original
 exact matches. Dictionaries, raw codes, pinyin lookup, and temporary English are

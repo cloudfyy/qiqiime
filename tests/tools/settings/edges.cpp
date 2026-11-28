@@ -75,15 +75,21 @@ void TestSettingsBindingBoundaries() {
         ReadSettingsFromWindowControls(hwnd.Get(), read_layout);
         QIQI_TEST_CHECK(read_layout.candidate_layout == layout);
     }
-    QIQI_TEST_CHECK(::SendDlgItemMessageW(hwnd.Get(), kIdComboOutputConversion, CB_GETCOUNT, 0, 0) == 3);
-    for (const auto mode : {OutputConversion::Off, OutputConversion::SimplifiedToTraditional,
-                            OutputConversion::TraditionalToSimplified}) {
-        cfg.output_conversion = mode;
-        WriteSettingsToWindowControls(hwnd.Get(), cfg);
-        QiQiConfig read_mode;
-        ReadSettingsFromWindowControls(hwnd.Get(), read_mode);
-        QIQI_TEST_CHECK(read_mode.output_conversion == mode);
+    QIQI_TEST_CHECK(::SendDlgItemMessageW(hwnd.Get(), kIdComboOutputConversion, CB_GETCOUNT, 0, 0) == 2);
+    QIQI_TEST_CHECK(::SendDlgItemMessageW(hwnd.Get(), kIdComboOutputConversion, CB_GETCURSEL, 0, 0) == 0);
+    constexpr std::array output_choices{L"简体中文", L"繁体中文"};
+    for (size_t option = 0; option < output_choices.size(); ++option) {
+        std::array<wchar_t, 16> text{};
+        QIQI_TEST_CHECK(::SendDlgItemMessageW(hwnd.Get(), kIdComboOutputConversion, CB_GETLBTEXTLEN, option, 0) <
+            gsl::narrow_cast<LRESULT>(text.size()));
+        QIQI_TEST_CHECK(::SendDlgItemMessageW(hwnd.Get(), kIdComboOutputConversion, CB_GETLBTEXT, option,
+            reinterpret_cast<LPARAM>(text.data())) != CB_ERR && std::wstring_view(text.data()) ==
+            gsl::at(output_choices, option));
     }
+    QIQI_TEST_CHECK(::SendDlgItemMessageW(hwnd.Get(), kIdComboOutputConversion, CB_SETCURSEL, 1, 0) == 1);
+    QiQiConfig traditional;
+    ReadSettingsFromWindowControls(hwnd.Get(), traditional);
+    QIQI_TEST_CHECK(traditional.output_conversion == OutputConversion::SimplifiedToTraditional);
     WPARAM language_index = 0;
     for (const UiLanguage language : {UiLanguage::Auto, UiLanguage::ZhCn, UiLanguage::EnUs}) {
         cfg.ui_language = language;
