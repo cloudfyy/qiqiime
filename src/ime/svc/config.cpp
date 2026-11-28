@@ -873,7 +873,7 @@ STDMETHODIMP QiQiTextService::GetDisplayName(BSTR* pbstrName) noexcept {
     return CopyToBstr(str.configure_display_name, pbstrName);
 }
 
-void QiQiTextService::ApplyDynamicEngineSettings() noexcept {
+HRESULT QiQiTextService::ApplyDynamicEngineSettings() noexcept {
     if (HasConfigRegistrySubKeyOverride()) {
         std::ignore = log::CheckHResult(
             UpdateImeSkinSnapshot(
@@ -952,6 +952,11 @@ void QiQiTextService::ApplyDynamicEngineSettings() noexcept {
     engine_.SetEnableKeySound(config_.enable_key_sound);
     engine_.SetUpDownPageTurn(config_.up_down_page_turn);
     engine_.SetSpaceEnterMode(config_.space_enter_mode);
+    const HRESULT pinyin = engine_.SetZPinyinLookup(config_.enable_z_pinyin_lookup);
+    if (!log::CheckHResult(pinyin, "IME::SetZPinyinLookup")) {
+        ShowSettingsToast(config_.ui_language, SettingsToastKind::PinyinUnavailable);
+    }
+    return pinyin;
 }
 
 bool QiQiTextService::PersistAndSyncQuickConfigChange(QiQiConfig updated_config, bool reload_dicts) {
@@ -1228,7 +1233,7 @@ QiQiTextService::ReloadResult QiQiTextService::ReloadConfigIfModified(uint64_t f
         config_status = "loaded";
         config_ = std::move(updated);
         UpdateSettingsToastLanguage(config_.ui_language);
-        ApplyDynamicEngineSettings();
+        if (const HRESULT applied = ApplyDynamicEngineSettings(); FAILED(applied)) result.Fail(applied);
         if (config_.dynamic_phrase_freq && !engine_.PhraseFreqPath().empty()) {
             const bool loaded = engine_.LoadPhraseFrequencies(engine_.PhraseFreqPath());
             phrase_frequency_status = loaded ? "loaded" : "load-failed";

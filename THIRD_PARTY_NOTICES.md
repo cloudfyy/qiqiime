@@ -136,6 +136,26 @@ the complete-code columns in `GBSimplified.tab`. The output SHA-256 is
 The binary ships once beside the dictionaries; normal builds neither need the
 raw source files nor access the network.
 
+## Unicode Unihan pinyin index
+
+- Source: Unicode 17.0.0 [`Unihan.zip`](https://www.unicode.org/Public/17.0.0/ucd/Unihan.zip),
+  `Unihan_Readings.txt` properties `kMandarin`, `kHanyuPinyin` and `kHanyuPinlu`.
+- Distributed conversion: [data/pinyin.idx](data/pinyin.idx), 52,714 unique
+  syllable/scalar pairs across 425 syllables. No phrase dictionary is included.
+- Attribution and license: Unicode, Inc., [Unicode License V3](licenses/Unicode-3.0.txt),
+  as specified by the [Unicode Data Files terms](https://www.unicode.org/copyright.html).
+- The generator removes tone marks, preserves `ü` as `v`, and deduplicates each
+  syllable/character pair. Within a syllable it orders by `kHanyuPinlu` count,
+  then preferred `kMandarin` reading, then Unicode scalar.
+- Archive SHA-256: `f7a48b2b545acfaa77b2d607ae28747404ce02baefee16396c5d2d7a8ef34b5e`.
+  Index SHA-256: `0a34b038fb2c00f16a810e6370144a4abd90e6608d32f4fadfd990906af6554a`.
+
+Regenerate from the pinned archive without a runtime Python or network dependency:
+
+```powershell
+.\scripts\generate_pinyin_index.ps1 -UnihanZip <path-to-Unihan.zip>
+```
+
 ## Microsoft Guidelines Support Library (GSL)
 
 - Upstream: [microsoft/GSL](https://github.com/microsoft/GSL).

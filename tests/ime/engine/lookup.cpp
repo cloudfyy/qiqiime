@@ -3,6 +3,7 @@
 
 #include "common/support.h"
 #include "ime/engine/engine.h"
+#include "ime/engine/pinyin.h"
 
 #include <windows.h>
 #include <array>
@@ -242,6 +243,66 @@ void TestPhraseCharacterSelection() {
     QIQI_TEST_CHECK(engine.ProcessKey(VK_OEM_6).committed_text == L"\U00020001");
     QIQI_TEST_CHECK(engine.ProcessKey(VK_OEM_6).action == KeyActionType::PassThrough);
     QIQI_TEST_CHECK(engine.PromotedPhrases().empty());
+}
+
+void TestZPinyinLookup() {
+    PinyinIndex index;
+    QIQI_TEST_CHECK(index.OpenBundled() == S_OK &&
+        std::ranges::contains(index.Lookup(L"A"), L"\U00020F1E"));
+    QIQI_TEST_CHECK(index.Lookup(L"").empty() && index.Lookup(L"nǐ").empty());
+    WubiEngine engine;
+    QIQI_TEST_CHECK(engine.ProcessKey('Z').action == KeyActionType::UpdateState && engine.IsTempEnglishMode());
+    QIQI_TEST_CHECK(engine.ProcessKey(VK_ESCAPE).action == KeyActionType::Cancel);
+
+    std::vector<uint8_t> binary;
+    WubiMappedDict::CompileEntriesToBinaryBuffer({
+        {PackWubiCode(L"a"), {L"你"}},
+        {PackWubiCode(L"abcd"), {L"你"}},
+        {PackWubiCode(L"abce"), {L"你"}}
+    }, binary);
+    QIQI_TEST_CHECK(engine.LoadDictionaryFromBinaryBuffer(std::move(binary)));
+    QIQI_TEST_CHECK(engine.SetZPinyinLookup(true) == S_OK);
+    engine.SetPageSize(2);
+    const auto type = [&](std::string_view keys) {
+        for (const unsigned char key : keys) {
+            QIQI_TEST_CHECK(engine.ShouldEatKey(key, false, false, false));
+            QIQI_TEST_CHECK(engine.ProcessKey(key).action == KeyActionType::UpdateState);
+        }
+    };
+
+    type("ZNI");
+    QIQI_TEST_CHECK(engine.IsPinyinLookupMode() && engine.RawCode() == L"zni");
+    QIQI_TEST_CHECK(!engine.AllCandidates().empty() && engine.AllCandidates().front() == L"你");
+    QIQI_TEST_CHECK(!engine.AllDisplayCandidates().empty() && engine.AllDisplayCandidates().front() == L"你(abcd)");
+    QIQI_TEST_CHECK(engine.ProcessKey(VK_SPACE).committed_text == L"你");
+    QIQI_TEST_CHECK(engine.State() == EngineState::Idle && engine.PromotedPhrases().empty());
+
+    type("ZHAO");
+    QIQI_TEST_CHECK(engine.AllCandidates().size() > 2);
+    QIQI_TEST_CHECK(engine.ProcessKey('2').committed_text == L"号");
+    QIQI_TEST_CHECK(engine.ProcessKey(VK_OEM_6).committed_text == L"】");
+
+    for (const auto* keys : {"ZXING", "ZHANG"}) {
+        type(keys);
+        QIQI_TEST_CHECK(std::ranges::contains(engine.AllCandidates(), L"行"));
+        QIQI_TEST_CHECK(engine.ProcessKey(VK_ESCAPE).action == KeyActionType::Cancel);
+    }
+    type("ZNV");
+    QIQI_TEST_CHECK(std::ranges::contains(engine.AllCandidates(), L"女"));
+    QIQI_TEST_CHECK(engine.ProcessKey(VK_BACK).composition_text == L"zn");
+    QIQI_TEST_CHECK(engine.ProcessKey(VK_ESCAPE).action == KeyActionType::Cancel);
+    type("ZQQQQQQQ");
+    QIQI_TEST_CHECK(engine.AllCandidates().empty() &&
+        engine.ProcessKey(VK_SPACE).action == KeyActionType::UpdateState);
+    QIQI_TEST_CHECK(engine.ProcessKey(VK_ESCAPE).action == KeyActionType::Cancel);
+
+    type("WQZ");
+    QIQI_TEST_CHECK(engine.State() == EngineState::Composing3 && engine.RawCode() == L"wqz");
+    QIQI_TEST_CHECK(std::ranges::contains(engine.AllCandidates(), L"你"));
+    engine.Reset();
+    QIQI_TEST_CHECK(engine.SetZPinyinLookup(false) == S_OK);
+    type("Z");
+    QIQI_TEST_CHECK(engine.IsTempEnglishMode());
 }
 
 void TestWildcardAndBackspaceAndCancel() {

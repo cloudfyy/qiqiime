@@ -27,6 +27,8 @@ constexpr TransitionRule ComputeTransitionRule(EngineState state, KeyEventKind e
         switch (event) {
             case KeyEventKind::TempEnglishGuide:
                 return {TransitionOp::StartTempEnglish, true};
+            case KeyEventKind::PinyinLookupGuide:
+                return {TransitionOp::StartPinyinLookup, true};
             case KeyEventKind::CodeChar:
                 return {TransitionOp::AppendCode, true};
             case KeyEventKind::ChinesePunct:
@@ -53,6 +55,35 @@ constexpr TransitionRule ComputeTransitionRule(EngineState state, KeyEventKind e
             case KeyEventKind::CodeChar:
             case KeyEventKind::UpperChar:
                 return {TransitionOp::AppendTempEnglish, true};
+            default:
+                return {TransitionOp::PassThrough, false};
+        }
+    }
+
+    if (state == EngineState::PinyinLookup) {
+        switch (event) {
+            case KeyEventKind::CodeChar:
+            case KeyEventKind::UpperChar:
+                return {TransitionOp::AppendPinyinLetter, true};
+            case KeyEventKind::Backspace:
+                return {TransitionOp::PopPinyinLetter, true};
+            case KeyEventKind::Escape:
+                return {TransitionOp::CancelComposition, true};
+            case KeyEventKind::CapsLockToggle:
+                return {TransitionOp::CancelComposition, false};
+            case KeyEventKind::Space:
+            case KeyEventKind::Enter:
+                return {TransitionOp::CommitSelected, true};
+            case KeyEventKind::DigitSelect:
+                return {TransitionOp::CommitDigitIndex, true};
+            case KeyEventKind::CandidatePrev:
+                return {TransitionOp::SelectPrevCandidate, true};
+            case KeyEventKind::CandidateNext:
+                return {TransitionOp::SelectNextCandidate, true};
+            case KeyEventKind::PageUp:
+                return {TransitionOp::TurnPagePrev, true};
+            case KeyEventKind::PageDown:
+                return {TransitionOp::TurnPageNext, true};
             default:
                 return {TransitionOp::PassThrough, false};
         }

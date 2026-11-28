@@ -238,7 +238,7 @@ private:
     void SetChineseModeAndFinishComposition(ITfContext* context, bool enabled);
     void ToggleModeAndFinishComposition(ITfContext* context);
     void SyncTsfCompartments();
-    void ApplyDynamicEngineSettings() noexcept;
+    HRESULT ApplyDynamicEngineSettings() noexcept;
     ReloadResult ReloadConfigIfModified(uint64_t focus_log_id = 0);
     void ApplyEngineResult(ITfContext* context, const KeyProcessResult& result);
     HRESULT ApplyCompositionEditInSession(TfEditCookie ec, const CompositionEditTask& task);

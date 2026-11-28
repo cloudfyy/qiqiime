@@ -31,6 +31,9 @@ HRESULT Utf8ToWideResult(
 // Query the full filesystem path of a loaded module (exe or dll). Returns empty path on failure.
 std::filesystem::path GetModuleFilePath(void* module_handle) noexcept;
 
+// Shared by the native and WOW64 runtime; no search in the host's current directory.
+HRESULT ResolveSharedRuntimeDataPath(std::wstring_view name, std::filesystem::path& output) noexcept;
+
 // Return %LOCALAPPDATA%\QiQiIME (or %TEMP%\QiQiIME fallback), including paths beyond MAX_PATH.
 std::filesystem::path GetAppDataDirectory();
 

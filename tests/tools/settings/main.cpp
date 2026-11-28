@@ -92,6 +92,7 @@ void TestStandaloneRestoreDefaults() {
         initial.single_character_mode = true;
         initial.full_code_practice = true;
         initial.phrase_char_selection = true;
+        initial.enable_z_pinyin_lookup = true;
         initial.space_enter_mode = WubiSpaceEnterMode::EnterSelectSpaceClear;
         initial.ui_language = UiLanguage::EnUs;
         initial.user_dict_path = L"preserved_startup_words.txt";

@@ -84,6 +84,7 @@ constexpr int kIdComboSpaceEnter = 162;
 constexpr int kIdChkSingleCharacter = 163;
 constexpr int kIdChkFullCodePractice = 164;
 constexpr int kIdChkPhraseCharSelection = 165;
+constexpr int kIdChkZPinyinLookup = 166;
 inline constexpr const wchar_t* kSkinPickerWndClass = L"QiQiImeSkinPicker";
 constexpr UINT kSettingsEnsureFocusVisible = WM_APP + 93;
 constexpr UINT kSettingsCyclePage = WM_APP + 94;
@@ -104,7 +105,7 @@ inline constexpr std::array<SettingsPageLabel, 7> kSettingsPageLabels{{
     {L"关于", L"About"},
 }};
 inline constexpr std::array kSettingsInputControls{
-    kIdChkAutoCommit4, kIdChkPushCommit5, kIdChkQuickSelect, kIdChkPhraseCharSelection, kIdChkDynamicFreq,
+    kIdChkAutoCommit4, kIdChkPushCommit5, kIdChkQuickSelect, kIdChkPhraseCharSelection, kIdChkZPinyinLookup, kIdChkDynamicFreq,
     kIdChkShiftToggle, kIdLblEnglishSwitch, kIdComboEnglishSwitch, kIdLblSpaceEnter, kIdComboSpaceEnter};
 inline constexpr std::array kSettingsDictionaryControls{
     kIdRadioJidian, kIdChkExtraDict, kIdRadioHaifeng, kIdRadioBuiltin,

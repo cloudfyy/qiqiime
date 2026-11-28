@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <map>
+#include <mutex>
 #include <memory>
 #include <span>
 #include <string>
@@ -212,6 +213,12 @@ public:
     }
 
 private:
+    struct CharacterCode {
+        uint32_t scalar;
+        uint32_t code;
+    };
+
+    std::wstring FindLongestCodeForCharacter(uint32_t scalar) const;
     bool OpenMappedFile(const std::filesystem::path& bin_path,
                         uint64_t expected_src_size,
                         uint64_t expected_src_mtime) noexcept;
@@ -233,6 +240,8 @@ private:
     std::span<const DictCodeIndex> code_index_;
     std::span<const DictWordSlice> word_slices_;
     std::span<const wchar_t> char_pool_;
+    mutable std::once_flag character_index_ready_;
+    mutable std::vector<CharacterCode> character_codes_;
 };
 
 } // namespace qiqi

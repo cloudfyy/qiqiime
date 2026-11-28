@@ -107,7 +107,8 @@ $expected = @(
     "licenses\microsoft-gsl-MIT.txt",
     "licenses\nlohmann-json-MIT.txt",
     "licenses\miniz-MIT.txt",
-    "licenses\ftxui-MIT.txt"
+    "licenses\ftxui-MIT.txt",
+    "licenses\Unicode-3.0.txt"
 )
 try {
     $destination = Join-Path $fixture "stage"

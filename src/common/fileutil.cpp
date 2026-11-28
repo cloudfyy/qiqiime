@@ -115,6 +115,21 @@ std::filesystem::path GetModuleFilePath(void* module_handle) noexcept {
     }
 }
 
+HRESULT ResolveSharedRuntimeDataPath(std::wstring_view name, std::filesystem::path& output) noexcept {
+    static constexpr wchar_t module_anchor[] = L"QiQiIME shared data";
+    HMODULE module = nullptr;
+    if (!::GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+            std::data(module_anchor), &module)) return HRESULT_FROM_WIN32(::GetLastError());
+    const auto binary = GetModuleFilePath(module);
+    if (binary.empty()) return E_FAIL;
+    try {
+        output = binary.parent_path().parent_path() / L"data" / name;
+        return S_OK;
+    } catch (const std::bad_alloc&) {
+        return E_OUTOFMEMORY;
+    }
+}
+
 std::filesystem::path GetAppDataDirectory() {
     std::wstring buffer(MAX_PATH, L'\0');
     for (;;) {

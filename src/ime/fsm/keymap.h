@@ -145,7 +145,8 @@ constexpr KeyEventKind ClassifyKeyEvent(
     EngineState state = EngineState::Idle,
     bool caps_lock_on = false,
     bool up_down_page_turn = false,
-    bool phrase_char_selection = false) noexcept {
+    bool phrase_char_selection = false,
+    bool z_pinyin_lookup = false) noexcept {
     if (alt_down) {
         return KeyEventKind::None;
     }
@@ -192,8 +193,9 @@ constexpr KeyEventKind ClassifyKeyEvent(
     }
 
     const bool letter_upper = (shift_down != caps_lock_on);
-    if (state == EngineState::Idle && z_temp_english && vk == 'Z' && !letter_upper) {
-        return KeyEventKind::TempEnglishGuide;
+    if (state == EngineState::Idle && vk == 'Z' && !letter_upper) {
+        if (z_pinyin_lookup) return KeyEventKind::PinyinLookupGuide;
+        if (z_temp_english) return KeyEventKind::TempEnglishGuide;
     }
     if (vk >= 'A' && vk <= 'Z') {
         if ((state == EngineState::English || (state == EngineState::Idle && letter_upper)) && full_width) {
@@ -227,6 +229,11 @@ constexpr KeyEventKind ClassifyKeyEvent(
             return KeyEventKind::PageDown;
         default:
             break;
+    }
+
+    if (state == EngineState::PinyinLookup) {
+        return !shift_down && ResolveDigitKeyIndex(vk).has_value()
+            ? KeyEventKind::DigitSelect : KeyEventKind::None;
     }
 
     const bool is_wubi_composing = IsWubiComposingState(state);

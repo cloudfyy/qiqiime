@@ -5,7 +5,6 @@
 #include "ime/engine/dictdetail.h"
 #include "common/dictcodec.h"
 
-#include <new>
 #include <utility>
 
 namespace qiqi {
@@ -42,27 +41,15 @@ HRESULT FullCodeIndex::Open(const std::filesystem::path& path) noexcept {
 }
 
 HRESULT FullCodeIndex::OpenBundled() noexcept {
-    HMODULE module = nullptr;
-    if (!::GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-            kIndexName.data(), &module)) return HRESULT_FROM_WIN32(::GetLastError());
-    const auto binary_path = GetModuleFilePath(module);
-    if (binary_path.empty()) return E_FAIL;
-    try {
-        // Tests and both installed architectures use the shared sibling data directory.
-        return Open(binary_path.parent_path().parent_path() / L"data" / kIndexName);
-    } catch (const std::bad_alloc&) {
-        return E_OUTOFMEMORY;
-    }
+    std::filesystem::path path;
+    const HRESULT resolved = ResolveSharedRuntimeDataPath(kIndexName, path);
+    return SUCCEEDED(resolved) ? Open(path) : resolved;
 }
 
 uint32_t FullCodeIndex::CharacterCode(std::wstring_view character) const noexcept {
-    if (!dictdetail::IsSingleUtf16Codepoint(character)) return 0;
+    const uint32_t scalar = dictdetail::SingleUtf16Scalar(character);
     const auto bytes = mapping_.Bytes();
-    if (bytes.empty()) return 0;
-    uint32_t scalar = character.front();
-    if (character.size() == 2) {
-        scalar = 0x10000u + ((scalar - 0xD800u) << 10) + (gsl::at(character, 1) - 0xDC00u);
-    }
+    if (scalar == 0 || bytes.empty()) return 0;
     const auto records = bytes.subspan(kHeaderSize);
     size_t first = 0;
     size_t count = records.size() / kRecordSize;

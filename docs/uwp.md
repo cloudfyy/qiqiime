@@ -168,6 +168,12 @@ used. A missing or denied file leaves the host in its previous input mode and
 reports the failure. The AppContainer sync fixture checks both readable and
 denied cases with a real container token; it is not a real-app acceptance test.
 
+The optional leading-`z` pinyin lookup uses the same policy for
+`data\pinyin.idx`. It needs no network, extra capability or write access.
+If the index cannot be read or verified, the host reports the error and keeps
+the previous leading-`z` behavior. The AppContainer fixture also verifies this
+fallback, read-only lookup, and denied writes for the pinyin index.
+
 ## Diagnostics and input restrictions
 
 Use the [log monitor or ETW tools](log.md), not the settings executable, to capture

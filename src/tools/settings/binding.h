@@ -49,7 +49,7 @@ struct SettingsCheckboxBinding {
     int width_px;
 };
 
-constexpr std::array<SettingsCheckboxBinding, 18> kSettingsCheckboxes = {{
+constexpr std::array<SettingsCheckboxBinding, 19> kSettingsCheckboxes = {{
     {kIdChkExtraDict, &QiQiConfig::enable_jidian_extra, &UiStrings::dlg_chk_extra,
      layout::kLeftColumn, layout::kDictionaryFirstRow + layout::kDictionaryRowStep, layout::kOptionWidth},
     {kIdChkAutoCommit4, &QiQiConfig::auto_commit_4code, &UiStrings::dlg_chk_auto_commit4,
@@ -60,6 +60,8 @@ constexpr std::array<SettingsCheckboxBinding, 18> kSettingsCheckboxes = {{
      layout::kLeftColumn, layout::kInputFirstRow + 2 * layout::kInputRowStep, layout::kOptionWidth},
     {kIdChkPhraseCharSelection, &QiQiConfig::phrase_char_selection, &UiStrings::dlg_chk_phrase_char_selection,
      layout::kLeftColumn, layout::kInputFirstRow + 10 * layout::kInputRowStep, layout::kOptionWidth},
+    {kIdChkZPinyinLookup, &QiQiConfig::enable_z_pinyin_lookup, &UiStrings::dlg_chk_z_pinyin_lookup,
+     layout::kLeftColumn, layout::kInputFirstRow + 11 * layout::kInputRowStep, layout::kOptionWidth},
     {kIdChkCodeHint, &QiQiConfig::show_code_hint, &UiStrings::dlg_chk_code_hint,
      layout::kLeftColumn, layout::kInputFirstRow + 3 * layout::kInputRowStep, layout::kOptionWidth},
     {kIdChkCodeCompletion, &QiQiConfig::enable_code_completion, &UiStrings::dlg_chk_code_completion,

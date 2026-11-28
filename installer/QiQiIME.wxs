@@ -180,6 +180,9 @@
       <Component Id="CmpFullCodeIndex" Directory="DirData" Guid="$(var.ComponentGuidPrefix)0108">
         <File Id="FileFullCodeIndex" Source="$(var.StageDir)\data\full.idx" KeyPath="yes" />
       </Component>
+      <Component Id="CmpPinyinIndex" Directory="DirData" Guid="$(var.ComponentGuidPrefix)0109">
+        <File Id="FilePinyinIndex" Source="$(var.StageDir)\data\pinyin.idx" KeyPath="yes" />
+      </Component>
 
       <!-- Management scripts -->
       <Component Id="CmpScripts" Directory="DirScripts" Guid="$(var.ComponentGuidPrefix)0104">
@@ -209,6 +212,7 @@
         <File Id="FileJsonLicense" Source="$(var.StageDir)\licenses\nlohmann-json-MIT.txt" />
         <File Id="FileMinizLicense" Source="$(var.StageDir)\licenses\miniz-MIT.txt" />
         <File Id="FileFtxuiLicense" Source="$(var.StageDir)\licenses\ftxui-MIT.txt" />
+        <File Id="FileUnicodeLicense" Source="$(var.StageDir)\licenses\Unicode-3.0.txt" />
       </Component>
 
       <Component Id="CmpStartMenuShortcuts" Directory="QiQiProgramMenuFolder"

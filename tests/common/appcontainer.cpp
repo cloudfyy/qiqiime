@@ -58,6 +58,23 @@ void ProbeReader(const std::filesystem::path& directory, const wchar_t* registry
         QIQI_TEST_CHECK(practice.LookupCandidates(L"vb").empty());
         QIQI_TEST_CHECK(practice.LookupCandidates(L"vbg") == std::vector<std::wstring>{L"好"});
     }
+    {
+        WubiEngine pinyin;
+        const auto denied = directory / L"denied-pinyin.idx";
+        const auto allowed = directory / L"pinyin.idx";
+        QIQI_TEST_CHECK(pinyin.SetZPinyinLookup(false, denied) == S_OK);
+        QIQI_TEST_CHECK(pinyin.SetZPinyinLookup(true, denied) == E_ACCESSDENIED);
+        QIQI_TEST_CHECK(pinyin.ProcessKey('Z').action == KeyActionType::UpdateState && pinyin.IsTempEnglishMode());
+        pinyin.Reset();
+        const ScopedFileHandle writer(::CreateFileW(allowed.c_str(), GENERIC_WRITE,
+            FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
+        QIQI_TEST_CHECK(!writer && ::GetLastError() == ERROR_ACCESS_DENIED);
+        QIQI_TEST_CHECK(pinyin.SetZPinyinLookup(true, allowed) == S_OK);
+        for (const UINT key : {'Z', 'N', 'I'}) {
+            QIQI_TEST_CHECK(pinyin.ProcessKey(key).action == KeyActionType::UpdateState);
+        }
+        QIQI_TEST_CHECK(pinyin.ProcessKey(VK_SPACE).committed_text == L"你");
+    }
     SetConfigRegistrySubKeyOverrideForTest(registry_subkey);
     QIQI_TEST_CHECK(::SetEnvironmentVariableW(L"LOCALAPPDATA", L"C:\\QiQiContainerPrivate"));
     std::filesystem::path discovered;
@@ -250,6 +267,13 @@ void TestAppContainerTransport(const std::filesystem::path& peer) {
     QIQI_TEST_CHECK(WriteFileAtomically(fixture.directory / L"full.idx", codec::AsByteSpan(index_bytes)));
     QIQI_TEST_CHECK(WriteFileAtomically(denied_index, codec::AsByteSpan(index_bytes)));
     QIQI_TEST_CHECK(::SetFileSecurityW(denied_index.c_str(),
+        DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION, raw));
+    const auto denied_pinyin = fixture.directory / L"denied-pinyin.idx";
+    const auto pinyin_index = full_index.parent_path() / L"pinyin.idx";
+    QIQI_TEST_CHECK(ReadFileToUtf8StringResult(pinyin_index, index_bytes) == S_OK);
+    QIQI_TEST_CHECK(WriteFileAtomically(fixture.directory / L"pinyin.idx", codec::AsByteSpan(index_bytes)));
+    QIQI_TEST_CHECK(WriteFileAtomically(denied_pinyin, codec::AsByteSpan(index_bytes)));
+    QIQI_TEST_CHECK(::SetFileSecurityW(denied_pinyin.c_str(),
         DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION, raw));
     for (const auto* name : {L"MissingSnapshot", L"DeniedSnapshot", L"MissingJournal"}) {
         const auto source_path = fixture.directory / (std::wstring(name) + L".txt");

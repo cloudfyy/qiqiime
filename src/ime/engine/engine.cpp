@@ -274,7 +274,7 @@ WubiEngine::KeyDispatch WubiEngine::EvaluateKeyTransition(
     const auto classify = [&](bool phrase_char_selection) noexcept {
         return ClassifyKeyEvent(vk, shift_down, ctrl_down, alt_down,
             chinese_punctuation_, semicolon_quote_quick_select_, enable_z_temp_english_,
-            full_width_mode_, state, caps_lock_on, up_down_page_turn_, phrase_char_selection);
+            full_width_mode_, state, caps_lock_on, up_down_page_turn_, phrase_char_selection, enable_z_pinyin_lookup_);
     };
     KeyEventKind event = classify(phrase_char_selection_);
     std::wstring_view character;
@@ -382,6 +382,7 @@ WubiEngine::TransitionOutcome WubiEngine::HandleCancelComposition(const KeyInput
 }
 
 WubiEngine::TransitionOutcome WubiEngine::HandleCommitSelected(const KeyInputContext& ctx) {
+    if (IsPinyinLookupMode()) return ResolveCandidateCommit(selected_in_page_, false);
     if (clear_on_empty_4code_ && all_candidates_.empty()) {
         ClearCompositionData();
         return {EngineState::Idle, MakeCurrentStateResult(KeyActionType::Cancel)};
@@ -643,7 +644,10 @@ KeyProcessResult WubiEngine::ProcessKey(
         &WubiEngine::HandleCommitFullWidth,       // 20: CommitFullWidth
         &WubiEngine::HandlePinDigitCandidate,     // 21: PinDigitCandidate
         &WubiEngine::HandleDeleteOrBlockCandidate,// 22: DeleteOrBlockCandidate
-        &WubiEngine::HandleCommitPhraseCharacter // 23: CommitPhraseCharacter
+        &WubiEngine::HandleCommitPhraseCharacter,// 23: CommitPhraseCharacter
+        &WubiEngine::HandleStartPinyinLookup,     // 24: StartPinyinLookup
+        &WubiEngine::HandleAppendPinyinLetter,    // 25: AppendPinyinLetter
+        &WubiEngine::HandlePopPinyinLetter        // 26: PopPinyinLetter
     };
     static_assert(AllActionHandlersBound(std::span<const ActionHandler>(kActionHandlers)));
 

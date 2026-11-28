@@ -28,11 +28,11 @@
 | 词语联想 | 未做 | 提交后没有关联词候选。现有 `dynamic_phrase_freq` 仅调整同编码词组的最近选择顺序，不是联想，见 W12。 |
 | 二字、三字、四字及多字词组输入 | 已做 | 支持码表词组；造词取码规则已有 2+2、1+1+2、前三字及末字首码。 |
 | 单字模式 | 已做 | 候选窗口页可选严格单字筛选，默认关闭，多字自造词和置顶词仅隐藏，见 W02。 |
-| 临时拼音、拼音反查五笔码 | 未做 | 已有“字/词查五笔码”的内部接口和词库管理器入口，但没有拼音检索数据及输入路径；首码 `z` 默认是临时英文，编码中的 `z` 是通配，见 W05。 |
+| 临时拼音、拼音反查五笔码 | 已做 | “输入习惯”可将首码 `z` 改为离线单字拼音反查；默认仍为临时英文，编码中的 `z` 仍作通配，见 W05。 |
 | 编码提示、字根拆分提示 | 部分 | 已有可关闭的后续编码提示及通配结果编码提示；没有字根拆分数据、字形展示和开关，见 W13。编码提示也未绑定 `Ctrl+Shift+J`。 |
 | 以形查音 | 未做 | 五笔候选没有拼音/多音字读音标注，`~` 不是查音入口，见 W09。 |
 | 简入繁出、繁入简出 | 未做 | 没有繁简转换模式或转换数据；码表中含繁体字不等于支持转换，见 W10。 |
-| 五笔拼音混输、纯五笔切换 | 部分 | 当前就是五笔 86 输入；没有拼音候选源、混输消歧及模式切换，见 W11。临时拼音反查不等于混输。 |
+| 五笔拼音混输、纯五笔切换 | 部分 | 已有独立的单字拼音反查，没有混输消歧及纯拼音模式，见 W11。 |
 | 造词、删自造词 | 已做 | `Ctrl+=` 对符合长度/取码条件的剪贴板词组造词；支持删除用户词、屏蔽系统词、固定候选及词库管理器编辑。 |
 | 全角/半角、中英文标点 | 已做 | 已有模式、默认配置及 `Shift+Space`、`Ctrl+.` 热键。 |
 | 翻页、二三候选 | 部分 | 已有 `-`/`=`、PageUp/PageDown、可选上下键翻页及 `;`/`'` 二三候选；缺自定义/逗号句号翻页（W07）和 `0` 选第十候选（W14）。 |
@@ -59,7 +59,7 @@
 | CapsLock 切换中英文 | 没有可选模式开关；当前保留系统大写锁定/英文直通，五笔组合中按下会提交编码并放行系统切换，见 W06。 |
 | `Shift+Space` / `Ctrl+.` | 已有全半角 / 中英文标点切换。 |
 | `Ctrl+Shift+F` | 未绑定，繁简转换本身也未做，见 W10、W07。 |
-| `z` 拼音反查 | 未做；已有临时英文/通配用途，不能无兼容方案直接抢占，见 W05。 |
+| `z` 拼音反查 | 可将中文空闲时的首码 `z` 改为拼音反查；默认临时英文及码中通配不变，见 W05。 |
 | Ctrl + Backtick（反引号）方案菜单 | 未做；当前只支持五笔 86，切换主词库不等于切换 86/98/新世纪方案，见 W15。 |
 | `Ctrl+Shift+H` | 未绑定；字根拆分功能待 W13，之后才能绑定。 |
 | `Ctrl+Shift+J` | 未绑定；编码提示已有设置项，快捷切换待 W07。 |
@@ -85,7 +85,7 @@ P2 补充可配置性及数据能力，P3 为较大扩展或暂缓项。
 | 2 | P1 | [W02 单字模式](#wubi-w02)（已完成） | 候选限额和四码唯一判断前筛选。 |
 | 3 | P1 | [W03 全码练习](#wubi-w03)（已完成） | 仅允许可核验的精确全码，不改词库或 FSM。 |
 | 4 | P1 | [W04 以词定字](#wubi-w04)（已完成） | 默认关闭，使用 `[` / `]`；只作用于尚未上屏的高亮词组。 |
-| 5 | P1 | [W05 离线拼音反查五笔码](#wubi-w05) | 高频补盲能力；先解决数据许可和入口，不被字根素材阻塞。 |
+| 5 | P1 | [W05 离线拼音反查五笔码](#wubi-w05)（已实现） | 默认保留临时英文；开启后首码 `z` 查单字及五笔码。 |
 | 6 | P2 | [W06 可选 CapsLock 中英切换](#wubi-w06) | 复用统一模式切换与未完成输入策略，保留默认英文直通。 |
 | 7 | P2 | [W07 快捷键配置及兼容预设](#wubi-w07) | 统一处理快捷键、翻页别名和冲突；功能不存在时不注册空操作。 |
 | 8 | P2 | [W08 字符集 / 生僻字过滤](#wubi-w08) | 先定义字符集口径，复用 W02 的候选过滤接入点。 |
@@ -489,36 +489,15 @@ status-bar/tooltip skin support require separate design approval.
   `full.idx` 只读加载，不扩大 AppContainer 权限。真实安装、卸载与重启检查
   沿用[现有 MSI 验收项](#high-priority-boundary-regressions)；推送后复跑云端 lint。
 
-- [ ] <a id="wubi-w05"></a> **W05 / P1:** Plan offline Pinyin-to-Wubi code
-  lookup (2026-11-19). Proposed first phase:
-  full-pinyin single-character queries, showing matching characters and their
-  longest available Wubi codes through the
-  [existing reverse lookup](../src/ime/engine/engine.h). Report missing codes
-  explicitly; do not assume every active dictionary supplies standard full codes.
-  Confirm the query entry and selection behavior (commit a character versus
-  query/copy a code) before implementation. Preserve existing `z` temporary
-  English/wildcard behavior and composition cancellation/unfinished-input policy.
-  Evaluate [Unicode Unihan](https://www.unicode.org/reports/tr38/) reading fields
-  or [pinyin-data](https://github.com/mozillazg/pinyin-data); retain polyphonic
-  readings rather than relying solely on `kMandarin`. Audit the selected files'
-  upstream licenses, pin the data version/hash, and distribute required notices;
-  a repository's MIT declaration alone does not settle third-party data licensing.
-  Generate a read-only reverse index ahead of runtime, with no network or Python
-  runtime dependency and no full-dictionary scan per keystroke. Define case/tone
-  normalization and `v` for u-diaeresis without merging it with plain `u`.
-  Cover homophones, polyphones, supplementary Unicode characters, missing codes,
-  cancellation and existing input behavior; measure binary/data size and lookup
-  cost. Defer abbreviations, fuzzy spelling, phrase and sentence input; evaluate
-  [phrase-pinyin-data](https://github.com/mozillazg/phrase-pinyin-data) separately
-  if phrase lookup is later approved. This records a proposal, not implementation.
-  Keep Pinyin lookup independent from the optional root-decomposition work below:
-  Pinyin supplies matching characters and the existing dictionary supplies Wubi
-  codes; root data is not needed to ship code lookup. Share only an extensible
-  candidate-annotation model (code, reading, roots) and the selected-candidate
-  rendering path, not the data loaders. Implement Pinyin-to-code annotation
-  first without waiting for licensed root splits, then enable root artwork as a
-  separate capability. Never derive root components from a Wubi key code: one
-  key represents multiple roots, and identification codes are not components.
+- [x] <a id="wubi-w05"></a> **W05 / P1：离线拼音反查五笔码。**
+  “输入习惯”提供 `EnableZPinyinLookup`（默认关闭），ZIP 字段为
+  `enable_z_pinyin_lookup`。开启后，中文空闲时首码 `z` 进入独立反查状态。
+  输入无声调的单字全拼（`v` 代表 `ü`）；候选显示当前词库中可用的最长五笔码，
+  没有编码则显示 `(-)`。空格、回车或数字选字后回到五笔，`Esc` 取消，
+  不改变首码 `z` 的默认临时英文行为、码内通配及未完成输入策略。
+  [Unihan 单字索引](../THIRD_PARTY_NOTICES.md#unicode-unihan-pinyin-index)为
+  双架构共用只读文件，不依赖网络、词组库或额外 AppContainer 权限。
+  真实 UWP 宿主复验仍按[权限说明](uwp.md)进行；简拼、模糊音、词组和混输另行排期。
   - [ ] <a id="wubi-w13"></a> **W13 / P3 (data/license-gated):**
     Track a separate optional Pinyin/Wubi candidate annotation for Wubi 86
     root decomposition (research 2026-11-19). Weasel itself renders only Rime

@@ -12,7 +12,8 @@ $script:QiQiDataFileNames = @(
     "wubi86_jidian.txt",
     "wubi86_jidian_extra.txt",
     "wubi86_haifeng.txt",
-    "full.idx"
+    "full.idx",
+    "pinyin.idx"
 )
 $script:QiQiToolExeNames = @(
     "QiQiIMESettings.exe",
@@ -136,7 +137,8 @@ function Copy-QiQiReleaseDocumentation(
         "licenses\microsoft-gsl-MIT.txt",
         "licenses\nlohmann-json-MIT.txt",
         "licenses\miniz-MIT.txt",
-        "licenses\ftxui-MIT.txt"
+        "licenses\ftxui-MIT.txt",
+        "licenses\Unicode-3.0.txt"
     )) {
         $source = Join-Path $SourceDirectory $relativePath
         if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
@@ -260,7 +262,7 @@ function Test-QiQiRuntimeFiles(
         }
         $parentDir = if ($item.Directory.Parent) { $item.Directory.Parent.FullName } else { $item.DirectoryName }
         foreach ($reqFile in $script:QiQiDataFileNames) {
-            if ($reqFile -eq "full.idx") {
+            if ($reqFile -in "full.idx", "pinyin.idx") {
                 if (-not (Test-Path -LiteralPath (Join-Path $parentDir "data\$reqFile") -PathType Leaf)) {
                     throw "Missing shared data file ($reqFile) for $($archInfo.Name) DLL in ..\data"
                 }

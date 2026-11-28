@@ -16,7 +16,8 @@ enum class EngineState : uint8_t {
     Composing3 = 4,  // Chinese mode, 3 codes entered
     Composing4 = 5,  // Chinese mode, 4 codes entered (max buffer length)
     TempEnglish = 6, // 'z'-guided temporary English string input mode
-    Count = 7
+    PinyinLookup = 7,// 'z'-guided single-character pinyin lookup
+    Count = 8
 };
 
 // Discrete input event categories used by the compile-time dispatch table.
@@ -41,7 +42,8 @@ enum class KeyEventKind : uint8_t {
     DeleteCandidate = 17, // Ctrl+Delete or Ctrl+Shift+'1'..'9' while composing: delete user word or block system word
     PhraseFirstChar = 18, // '[': select the first character of the highlighted phrase
     PhraseLastChar = 19,  // ']': select the last character of the highlighted phrase
-    Count = 20
+    PinyinLookupGuide = 20,// 'z' in Idle when pinyin lookup is enabled
+    Count = 21
 };
 
 // State machine transition actions executed by the engine
@@ -70,7 +72,10 @@ enum class TransitionOp : uint8_t {
     PinDigitCandidate = 21,     // Ctrl+'1'..'9': pin candidate at digit index to top
     DeleteOrBlockCandidate = 22,// Ctrl+Delete or Ctrl+Shift+'1'..'9': delete user entry or block system entry
     CommitPhraseCharacter = 23,// Commit only the requested character -> Idle
-    Count = 24
+    StartPinyinLookup = 24,     // Idle 'z': start a single-syllable pinyin lookup
+    AppendPinyinLetter = 25,
+    PopPinyinLetter = 26,
+    Count = 27
 };
 
 struct TransitionRule {
@@ -90,7 +95,7 @@ constexpr bool IsWubiComposingState(EngineState state) noexcept {
 }
 
 constexpr bool IsComposingState(EngineState state) noexcept {
-    return IsWubiComposingState(state) || state == EngineState::TempEnglish;
+    return IsWubiComposingState(state) || state == EngineState::TempEnglish || state == EngineState::PinyinLookup;
 }
 
 } // namespace qiqi

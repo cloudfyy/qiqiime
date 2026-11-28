@@ -656,6 +656,45 @@ void TestCandidateFilterConfigReload(bool practice) {
     QIQI_TEST_CHECK(composition->ended_ && context->range_->text_ == first.Get());
 }
 
+void TestZPinyinFromSettings() {
+    const TsfTestCaseTrace trace(__func__);
+    QIQI_TEST_CHECK(std::wstring_view(GetActiveConfigRegistrySubKey()) != kDefaultConfigRegSubKey);
+    const QiQiConfig saved = LoadConfig(g_dll_instance);
+    const auto restore = gsl::finally([&]() noexcept {
+        QIQI_TEST_CHECK_CLEANUP(SaveConfigToRegistry(saved));
+    });
+    QiQiConfig config;
+    config.primary_dict = PrimaryDict::BuiltinOnly;
+    QIQI_TEST_CHECK(SaveConfigToRegistry(config));
+    std::array<BYTE, 256> keyboard{};
+    QIQI_TEST_CHECK(::GetKeyboardState(keyboard.data()));
+    const auto restore_keyboard = gsl::finally([&]() noexcept {
+        QIQI_TEST_CHECK_CLEANUP(::SetKeyboardState(keyboard.data()));
+    });
+    std::array<BYTE, 256> clean_keyboard{};
+    QIQI_TEST_CHECK(::SetKeyboardState(clean_keyboard.data()));
+    const auto service = MakeComObject<QiQiTextService>(g_dll_instance);
+    const auto manager = MakeComObject<MockTfThreadMgr>();
+    manager->show_own_ui_ = FALSE;
+    QIQI_TEST_CHECK(service->ActivateEx(manager.Get(), 1, TF_TMAE_UIELEMENTENABLEDONLY) == S_OK);
+    const auto deactivate = gsl::finally([&]() noexcept {
+        QIQI_TEST_CHECK_CLEANUP(service->Deactivate() == S_OK);
+    });
+    const auto context = MakeComObject<MockTfContext>();
+
+    config.enable_z_pinyin_lookup = true;
+    QIQI_TEST_CHECK(SaveConfigToRegistry(config));
+    QIQI_TEST_CHECK(service->OnChange(kGuidCompartmentConfigVersion) == S_OK);
+    BOOL eaten = FALSE;
+    for (const UINT key : {'Z', 'N', 'I'}) {
+        QIQI_TEST_CHECK(service->OnTestKeyDown(context.Get(), key, 0, &eaten) == S_OK && eaten);
+        QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), key, 0, &eaten) == S_OK && eaten);
+    }
+    QIQI_TEST_CHECK(context->range_->text_ == L"zni" && !context->last_composition_->ended_);
+    QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), VK_SPACE, 0, &eaten) == S_OK && eaten);
+    QIQI_TEST_CHECK(context->range_->text_ == L"你" && context->last_composition_->ended_);
+}
+
 } // namespace
 
 void RunTsfSearchIntegrationTests() {
@@ -667,6 +706,7 @@ void RunTsfSearchIntegrationTests() {
     TestIntegratedServiceRouting();
     TestCandidateFilterConfigReload(false);
     TestCandidateFilterConfigReload(true);
+    TestZPinyinFromSettings();
     TestSearchIntegrationDiagnostics();
     QIQI_TEST_CHECK(g_com_object_count.load() == objects_before);
 }

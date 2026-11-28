@@ -13,6 +13,7 @@
 #include "common/theme.h"
 #include "ime/engine/dict.h"
 #include "ime/engine/fullcode.h"
+#include "ime/engine/pinyin.h"
 
 #include <commctrl.h>
 #include <windowsx.h>
@@ -358,6 +359,13 @@ void HandleSettingsCommand(HWND hwnd, WPARAM wparam, DialogContext& ctx) {
                     FullCodeIndex index;
                     if (!log::CheckHResult(index.OpenBundled(), "Settings::FullCodeIndex")) {
                         ShowSettingsMessage(hwnd, edited.ui_language, SettingsMessageKind::FullCodeUnavailable);
+                        return;
+                    }
+                }
+                if (edited.enable_z_pinyin_lookup) {
+                    PinyinIndex index;
+                    if (!log::CheckHResult(index.OpenBundled(), "Settings::PinyinIndex")) {
+                        ShowSettingsMessage(hwnd, edited.ui_language, SettingsMessageKind::PinyinUnavailable);
                         return;
                     }
                 }

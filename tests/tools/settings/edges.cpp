@@ -22,12 +22,13 @@ struct CheckboxCase {
     const wchar_t* UiStrings::* label;
 };
 
-constexpr std::array<CheckboxCase, 18> kCheckboxCases = {{
+constexpr std::array<CheckboxCase, 19> kCheckboxCases = {{
     {kIdChkExtraDict, &QiQiConfig::enable_jidian_extra, &UiStrings::dlg_chk_extra},
     {kIdChkAutoCommit4, &QiQiConfig::auto_commit_4code, &UiStrings::dlg_chk_auto_commit4},
     {kIdChkPushCommit5, &QiQiConfig::push_commit_5th, &UiStrings::dlg_chk_push_commit5},
     {kIdChkQuickSelect, &QiQiConfig::semicolon_quote_quick_select, &UiStrings::dlg_chk_quick_select},
     {kIdChkPhraseCharSelection, &QiQiConfig::phrase_char_selection, &UiStrings::dlg_chk_phrase_char_selection},
+    {kIdChkZPinyinLookup, &QiQiConfig::enable_z_pinyin_lookup, &UiStrings::dlg_chk_z_pinyin_lookup},
     {kIdChkCodeHint, &QiQiConfig::show_code_hint, &UiStrings::dlg_chk_code_hint},
     {kIdChkCodeCompletion, &QiQiConfig::enable_code_completion, &UiStrings::dlg_chk_code_completion},
     {kIdChkSingleCharacter, &QiQiConfig::single_character_mode, &UiStrings::dlg_chk_single_character},

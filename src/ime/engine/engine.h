@@ -18,6 +18,8 @@
 
 namespace qiqi {
 
+class PinyinIndex;
+
 enum class KeyActionType {
     PassThrough,   // Not handled by IME, let target application handle it
     UpdateState,   // Composition / candidate state updated
@@ -243,9 +245,12 @@ public:
     }
     bool EnableZTempEnglish() const noexcept { return enable_z_temp_english_; }
     void SetEnableZTempEnglish(bool enabled) noexcept { enable_z_temp_english_ = enabled; }
+    // Applied by the text service; non-input tools do not need to load the index.
+    HRESULT SetZPinyinLookup(bool enabled, const std::filesystem::path& index_path = {}) noexcept;
     bool DynamicPhraseFreq() const noexcept { return dynamic_phrase_freq_; }
     void SetDynamicPhraseFreq(bool enabled) noexcept { dynamic_phrase_freq_ = enabled; }
     bool IsTempEnglishMode() const noexcept { return state_ == EngineState::TempEnglish; }
+    bool IsPinyinLookupMode() const noexcept { return state_ == EngineState::PinyinLookup; }
     bool BeepOnEmpty4Code() const noexcept { return beep_on_empty_4code_; }
     void SetBeepOnEmpty4Code(bool enabled) noexcept { beep_on_empty_4code_ = enabled; }
     bool BeepOnDup4Code() const noexcept { return beep_on_dup_4code_; }
@@ -337,6 +342,7 @@ private:
     void ClearCompositionData() noexcept;
     void AppendCodeAndRefresh(uint32_t vk);
     void UpdateTempEnglishCandidates();
+    void UpdatePinyinCandidates();
     TransitionOutcome CommitAndClear(
         std::wstring committed_text, std::wstring promoted_code = {}, std::wstring promoted_word = {});
     TransitionOutcome ResolveCandidateCommit(
@@ -372,6 +378,9 @@ private:
     TransitionOutcome HandlePinDigitCandidate(const KeyInputContext& ctx);
     TransitionOutcome HandleDeleteOrBlockCandidate(const KeyInputContext& ctx);
     TransitionOutcome HandleCommitPhraseCharacter(const KeyInputContext& ctx);
+    TransitionOutcome HandleStartPinyinLookup(const KeyInputContext& ctx);
+    TransitionOutcome HandleAppendPinyinLetter(const KeyInputContext& ctx);
+    TransitionOutcome HandlePopPinyinLetter(const KeyInputContext& ctx);
 
     bool IsEntryRemoved(uint32_t packed_code, std::wstring_view word) const;
     void ClearUserDictionaryEntries() noexcept;
@@ -423,6 +432,8 @@ private:
     bool full_code_practice_ = false;
     std::shared_ptr<const FullCodeIndex> full_code_index_;
     bool enable_z_temp_english_ = true;
+    bool enable_z_pinyin_lookup_ = false;
+    std::shared_ptr<const PinyinIndex> pinyin_index_;
     bool dynamic_phrase_freq_ = false;
     bool beep_on_empty_4code_ = true;
     bool beep_on_dup_4code_ = false;

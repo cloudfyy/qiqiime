@@ -326,6 +326,7 @@ void TestConfigJson() {
     baseline.space_enter_mode = WubiSpaceEnterMode::SpaceSelectEnterClear;
     baseline.full_code_practice = true;
     baseline.phrase_char_selection = true;
+    baseline.enable_z_pinyin_lookup = true;
     const auto check_equal = [](const QiQiConfig& left, const QiQiConfig& right) {
         ForEachConfigField([&](const auto& field) { QIQI_TEST_CHECK(field.Value(left) == field.Value(right)); });
         QIQI_TEST_CHECK(left.primary_dict_path == right.primary_dict_path);
@@ -346,6 +347,7 @@ void TestConfigJson() {
     QIQI_TEST_CHECK(json.find("\"single_character_mode\": true") != std::string::npos);
     QIQI_TEST_CHECK(json.find("\"full_code_practice\": true") != std::string::npos);
     QIQI_TEST_CHECK(json.find("\"phrase_char_selection\": true") != std::string::npos);
+    QIQI_TEST_CHECK(json.find("\"enable_z_pinyin_lookup\": true") != std::string::npos);
     QIQI_TEST_CHECK(json.find("\"space_enter_mode\": \"enter-select-space-clear\"") != std::string::npos);
     QIQI_TEST_CHECK(json.find("\"page_size\": 9") != std::string::npos);
     QIQI_TEST_CHECK(json.find("\"ui_theme\": \"high_contrast\"") != std::string::npos);
@@ -453,7 +455,7 @@ void TestConfigJson() {
 }
 
 void TestConfigFieldProjections() {
-    constexpr std::array<std::pair<std::string_view, std::wstring_view>, 36> expected_keys{{
+    constexpr std::array<std::pair<std::string_view, std::wstring_view>, 37> expected_keys{{
         {"primary_dict", L"PrimaryDict"}, {"enable_jidian_extra", L"EnableJidianExtra"},
         {"page_size", L"PageSize"}, {"candidate_layout", L"CandidateLayout"},
         {"auto_commit_4code", L"AutoCommit4Code"},
@@ -473,9 +475,9 @@ void TestConfigFieldProjections() {
         {"candidate_font_weight", L"CandidateFontWeight"},
         {"candidate_font_italic", L"CandidateFontItalic"}, {"space_enter_mode", L"SpaceEnterMode"},
         {"single_character_mode", L"SingleCharacterMode"}, {"full_code_practice", L"FullCodePractice"},
-        {"phrase_char_selection", L"PhraseCharSelection"}
+        {"phrase_char_selection", L"PhraseCharSelection"}, {"enable_z_pinyin_lookup", L"EnableZPinyinLookup"}
     }};
-    constexpr std::array<std::string_view, 32> editable_keys{
+    constexpr std::array<std::string_view, 33> editable_keys{
         "primary_dict", "enable_jidian_extra", "page_size", "candidate_layout", "auto_commit_4code",
         "push_commit_5th", "semicolon_quote_quick_select", "show_code_hint", "dynamic_phrase_freq",
         "shift_toggle_mode", "commit_on_english_switch", "show_status_bar", "beep_on_empty_4code",
@@ -483,7 +485,7 @@ void TestConfigFieldProjections() {
         "ui_language", "underline_style", "bold_underline", "ui_theme", "ui_text_scale", "easy_reading",
         "enable_code_completion", "ime_skin_id", "candidate_font_size",
         "candidate_font_weight", "candidate_font_italic", "space_enter_mode", "single_character_mode",
-        "full_code_practice", "phrase_char_selection"
+        "full_code_practice", "phrase_char_selection", "enable_z_pinyin_lookup"
     };
     const std::wstring subkey = L"Software\\QiQiIME_ConfigFields_" + std::to_wstring(::GetCurrentProcessId());
     const auto cleanup = gsl::finally([&]() noexcept {

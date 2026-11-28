@@ -90,6 +90,12 @@ and AppContainer guides are available in English.
   legacy `.qbak` files are no longer accepted.
 - Optional four-code unique-candidate commit, fifth-key commit, empty-code
   clearing, wildcard lookup, code hints, and a `z`-prefixed temporary English mode.
+- **Leading `z` pinyin lookup** (off by default, under Settings → Input):
+  type `zni` to find standalone characters such as `你` with their longest code
+  in the active Wubi dictionaries. `(-)` means no code is available. Use
+  toneless pinyin and `v` for `ü`; Space, Enter or a digit selects a character
+  and returns to Wubi. Esc cancels. Leading `z` still defaults to temporary
+  English, and `z` within a Wubi code remains a wildcard.
 - **Full-code practice** (off by default, under Settings → Candidates) accepts
   only verified exact encodings already in the active dictionaries, including
   three-key full codes such as `vbg` for 好. Practice hides abbreviations,

@@ -63,6 +63,7 @@ struct UiStrings {
     const wchar_t* dlg_chk_push_commit5;
     const wchar_t* dlg_chk_quick_select;
     const wchar_t* dlg_chk_phrase_char_selection;
+    const wchar_t* dlg_chk_z_pinyin_lookup;
     const wchar_t* dlg_chk_code_hint;
     const wchar_t* dlg_chk_code_completion;
     const wchar_t* dlg_chk_single_character;
@@ -103,6 +104,7 @@ struct UiStrings {
     const wchar_t* dlg_save_conflict;
     const wchar_t* dlg_draft_unavailable;
     const wchar_t* dlg_full_code_unavailable;
+    const wchar_t* dlg_pinyin_unavailable;
     const wchar_t* dlg_notify_failed;
     const wchar_t* dlg_dict_manager_launch_failed;
     const wchar_t* quick_settings_save_failed;
@@ -178,6 +180,7 @@ inline constexpr UiStrings kZhCnStrings = {
     L"第五码自动顶字上屏",
     L"分号(;)与单引号(')选二、三重码",
     L"以词定字（[ 取首字，] 取末字）",
+    L"首码 z 用于拼音查五笔（默认临时英文）",
     L"显示后续编码提示 (~code)",
     L"编码补全",
     L"单字模式（仅显示单字候选）",
@@ -218,6 +221,7 @@ inline constexpr UiStrings kZhCnStrings = {
     L"设置版本已变化或尚未同步。你的修改仍保留，请在设置刷新后再次点“确定”。",
     L"设置未能完整刷新，本次未保存。已保留之前的编辑。请等待刷新，确认各项设置后再点“确定”。",
     L"无法读取或验证全码索引。全码练习未启用，请修复安装或检查读取权限。",
+    L"无法读取或验证拼音索引。拼音反查未启用，请修复安装或检查读取权限。",
     L"设置已保存，切换窗口后全面生效。",
     L"无法启动词库管理器。请确认 QiQiIMEDictManager.exe 已安装，且当前用户有权运行该程序。具体错误码已记录到日志。",
     L"保存设置失败，请重试。",
@@ -237,6 +241,7 @@ inline constexpr UiStrings kZhCnStrings = {
     L"• 极点五笔 86 固定词库快照 (KyleBing): Apache License 2.0\n"
     L"• rime-wubi86-jidian 上游许可副本 (KyleBing): MIT License\n"
     L"• 海峰五笔 86 词库及全码数据 (孙海峰): BSD 3-Clause License\n"
+    L"• Unihan 单字拼音索引 (Unicode, Inc.): Unicode License V3\n"
     L"• Microsoft GSL (Microsoft): MIT License\n"
     L"• nlohmann/json (Niels Lohmann): MIT License\n"
     L"• miniz (Rich Geldreich / RAD Game Tools): MIT License\n"
@@ -256,7 +261,7 @@ inline constexpr UiStrings kZhCnStrings = {
     L"• [ / ]：取高亮词组的首字 / 末字（在「输入习惯」开启，默认关闭）\n"
     L"• - = / PageUp PageDown / ↑ ↓：候选词上翻页 / 下翻页\n\n"
     L"【特色输入】\n"
-    L"• 首码 z + 英文或符号：临时英文输入模式（回车或空格上屏）\n"
+    L"• 首码 z：默认临时英文；在「输入习惯」可改为拼音反查，空格或数字选字\n"
     L"• 第 2–4 码输入 z：万能键通配查询并提示编码\n"
     L"• 编码中按 CapsLock：已输编码转英文上屏并切换大写锁定\n\n"
     L"【词库与调序】\n"
@@ -316,6 +321,7 @@ inline constexpr UiStrings kEnUsStrings = {
     L"Push-commit on 5th code key",
     L"Select 2nd/3rd candidate with ; and '",
     L"Select first / last character with [ / ]",
+    L"Use leading z to look up Wubi codes by pinyin",
     L"Show progressive code hints (~code)",
     L"Code completion",
     L"Single-character mode (hide multi-character candidates)",
@@ -356,6 +362,7 @@ inline constexpr UiStrings kEnUsStrings = {
     L"The settings version changed or has not loaded yet. Your edits are kept. Wait for Settings to refresh, then click OK again.",
     L"Settings could not finish refreshing. Nothing was saved. Your previous edits are kept. Wait for the refresh, review the values, then click OK again.",
     L"The full-code index could not be read or verified. Full-code practice was not enabled. Repair the installation or check read permissions.",
+    L"The pinyin index could not be read or verified. Pinyin lookup was not enabled. Repair the installation or check read permissions.",
     L"Settings were saved, but the running IME could not be notified. Reactivate the IME to load the new settings.",
     L"Cannot start Dictionary Manager. Check that QiQiIMEDictManager.exe is installed and the current user can run it. The error code was recorded in the log.",
     L"Could not save setting. The previous setting is unchanged.",
@@ -375,6 +382,7 @@ inline constexpr UiStrings kEnUsStrings = {
     L"• Jidian Wubi 86 fixed dictionary snapshot (KyleBing): Apache License 2.0\n"
     L"• rime-wubi86-jidian upstream license copy (KyleBing): MIT License\n"
     L"• Haifeng Wubi 86 dictionary and full-code data (SUN Haifeng): BSD 3-Clause License\n"
+    L"• Unihan single-character pinyin index (Unicode, Inc.): Unicode License V3\n"
     L"• Microsoft GSL (Microsoft): MIT License\n"
     L"• nlohmann/json (Niels Lohmann): MIT License\n"
     L"• miniz (Rich Geldreich / RAD Game Tools): MIT License\n"
@@ -394,7 +402,7 @@ inline constexpr UiStrings kEnUsStrings = {
     L"• [ / ]: Commit first / last character of the highlighted phrase (opt-in in Input)\n"
     L"• - = / PageUp PageDown / Up Down: Previous / Next candidate page\n\n"
     L"[Special Input]\n"
-    L"• Leading 'z' + ASCII text: Temporary English mode (Enter/Space commits)\n"
+    L"• Leading z: Temporary English by default; enable pinyin lookup in Input (Space/digits select)\n"
     L"• 'z' in 2nd–4th code position: Wildcard code query with code hints\n"
     L"• CapsLock while composing: Commit raw code and toggle CapsLock\n\n"
     L"[Dictionary & Ordering]\n"

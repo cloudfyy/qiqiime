@@ -20,6 +20,8 @@ set(QIQI_ENGINE_SOURCES
     engine/dictlookup.cpp
     engine/fullcode.cpp
     engine/fullcode.h
+    engine/pinyin.cpp
+    engine/pinyin.h
     engine/dictsync.cpp
     engine/dictuser.cpp
     engine/engine.h
@@ -31,6 +33,7 @@ source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${QIQI_ENGINE_SOURCES})
 target_link_libraries(qiqi_engine PUBLIC qiqi_common)
 
 configure_file("${PROJECT_SOURCE_DIR}/data/full.idx" "${CMAKE_BINARY_DIR}/data/full.idx" COPYONLY)
+configure_file("${PROJECT_SOURCE_DIR}/data/pinyin.idx" "${CMAKE_BINARY_DIR}/data/pinyin.idx" COPYONLY)
 
 set(QIQIIME_SOURCES
     tsf/dllmain.cpp

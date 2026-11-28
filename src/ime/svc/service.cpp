@@ -112,7 +112,7 @@ QiQiTextService::QiQiTextService(HINSTANCE instance)
     engine_.SetUserDictPath(GetDefaultUserDictPath());
     engine_.SetPhraseFreqPath(GetDefaultPhraseFreqPath());
     std::ignore = engine_.LoadPhraseFrequencies(engine_.PhraseFreqPath());
-    ApplyDynamicEngineSettings();
+    std::ignore = ApplyDynamicEngineSettings();
     candidate_ui_ = MakeComObject<CandidateUI>(instance);
     candidate_ui_->SetFontPreferences(GetCandidateFontPreferences(config_));
     candidate_ui_->SetSelectCallback([this](size_t index_in_page) {

@@ -57,7 +57,8 @@ enum class SettingsMessageKind {
     InvalidPrimaryDict,
     SaveConflict,
     DraftUnavailable,
-    FullCodeUnavailable
+    FullCodeUnavailable,
+    PinyinUnavailable
 };
 
 ScopedWindow CreateSettingsMessageWindow(

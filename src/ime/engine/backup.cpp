@@ -10,6 +10,7 @@
 #include "common/zip.h"
 #include "ime/engine/dict.h"
 #include "ime/engine/fullcode.h"
+#include "ime/engine/pinyin.h"
 
 #include <gsl/gsl>
 #include <algorithm>
@@ -331,6 +332,15 @@ BackupRestoreResult CompleteBackup::RestoreFile(
     if (plan.config_changed && plan.config.full_code_practice) {
         FullCodeIndex index;
         if (const HRESULT opened = index.OpenBundled(); FAILED(opened)) {
+            result.stage = BackupRestoreStage::Validate;
+            result.error = opened;
+            return result;
+        }
+    }
+    if (plan.config_changed && plan.config.enable_z_pinyin_lookup) {
+        PinyinIndex index;
+        if (const HRESULT opened = index.OpenBundled(); FAILED(opened)) {
+            std::ignore = log::CheckHResult(opened, "Backup restore::PinyinIndex");
             result.stage = BackupRestoreStage::Validate;
             result.error = opened;
             return result;

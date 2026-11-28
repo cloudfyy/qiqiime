@@ -5,6 +5,7 @@
 #include "ime/engine/builtindict.h"
 
 #include <algorithm>
+#include <bit>
 #include <utility>
 #include <vector>
 
@@ -162,6 +163,9 @@ std::wstring WubiMappedDict::FindLongestCodeForWord(std::wstring_view word) cons
     if (word.empty() || code_index_.empty()) {
         return {};
     }
+    if (const uint32_t scalar = dictdetail::SingleUtf16Scalar(word); scalar != 0) {
+        return FindLongestCodeForCharacter(scalar);
+    }
     std::wstring best_code;
     for (const auto& entry : code_index_) {
         const size_t end_idx = std::min<size_t>(
@@ -180,6 +184,28 @@ std::wstring WubiMappedDict::FindLongestCodeForWord(std::wstring_view word) cons
         }
     }
     return best_code;
+}
+
+std::wstring WubiMappedDict::FindLongestCodeForCharacter(uint32_t scalar) const {
+    std::call_once(character_index_ready_, [this] {
+        std::vector<CharacterCode> codes;
+        ForEachEntry([&codes](uint32_t code, std::wstring_view word) {
+            if (const uint32_t character = dictdetail::SingleUtf16Scalar(word); character != 0) {
+                codes.push_back({character, code});
+            }
+        });
+        std::ranges::sort(codes, [](const CharacterCode& left, const CharacterCode& right) noexcept {
+            if (left.scalar != right.scalar) return left.scalar < right.scalar;
+            const int left_padding = std::countr_zero(left.code) / 8;
+            const int right_padding = std::countr_zero(right.code) / 8;
+            return left_padding != right_padding ? left_padding < right_padding : left.code < right.code;
+        });
+        const auto duplicates = std::ranges::unique(codes, {}, &CharacterCode::scalar);
+        codes.erase(duplicates.begin(), duplicates.end());
+        character_codes_ = std::move(codes);
+    });
+    const auto found = std::ranges::lower_bound(character_codes_, scalar, {}, &CharacterCode::scalar);
+    return found != character_codes_.end() && found->scalar == scalar ? UnpackWubiCode(found->code) : std::wstring{};
 }
 
 std::vector<std::wstring> WubiEngine::LookupExact(std::wstring_view code) const {

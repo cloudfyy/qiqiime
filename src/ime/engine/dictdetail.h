@@ -43,6 +43,13 @@ constexpr bool IsSingleUtf16Codepoint(std::wstring_view text) noexcept {
         (units == 2 || (units == 1 && !IS_HIGH_SURROGATE(text.front()) && !IS_LOW_SURROGATE(text.front())));
 }
 
+constexpr uint32_t SingleUtf16Scalar(std::wstring_view text) noexcept {
+    if (!IsSingleUtf16Codepoint(text)) return 0;
+    const uint32_t first = text.front();
+    return text.size() == 1 ? first :
+        0x10000u + ((first - 0xD800u) << 10) + (gsl::at(text, 1) - 0xDC00u);
+}
+
 std::vector<std::wstring_view> SplitUtf16Codepoints(std::wstring_view text);
 
 bool MatchesFullWubiCode(const FullCodeIndex& index, uint32_t packed_code, std::wstring_view word);
