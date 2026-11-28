@@ -74,6 +74,9 @@ powershell -ExecutionPolicy Bypass -File scripts\build_all.ps1
 ```
 
 The default configuration is Release. Use `-Config Debug` for Debug.
+Both builds finish before either CTest suite starts. When the x64 Broker
+cross-architecture test is registered, it uses the x86 build in the same
+configuration. If running it separately, build both architectures first.
 The command does not create installers unless `-Package` is supplied.
 It does not run the website's Node or Chromium tests; those are separate gates.
 

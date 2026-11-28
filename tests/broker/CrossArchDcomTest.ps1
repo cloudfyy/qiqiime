@@ -120,11 +120,10 @@ try {
         throw 'x86 client timed out while activating the x64 Broker.'
     }
     if ($client.ExitCode -ne 0) {
-        if (Test-Path $stdout) {
-            Get-Content $stdout | Write-Error
-        }
-        if (Test-Path $stderr) {
-            Get-Content $stderr | Write-Error
+        foreach ($log in $stdout, $stderr) {
+            if (Test-Path -LiteralPath $log -PathType Leaf) {
+                Get-Content -LiteralPath $log | Write-Host
+            }
         }
         throw "x86 client failed with exit code $($client.ExitCode)."
     }

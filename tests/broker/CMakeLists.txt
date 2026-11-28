@@ -117,8 +117,10 @@ set_tests_properties(
         TIMEOUT 60
         RUN_SERIAL TRUE)
 
+set(_x86_broker_build "${PROJECT_SOURCE_DIR}/build/x86")
 if(CMAKE_SIZEOF_VOID_P EQUAL 8
-   AND EXISTS "${PROJECT_SOURCE_DIR}/build/x86/Release/qiqi_broker_probe.exe")
+   AND (EXISTS "${_x86_broker_build}/Release/qiqi_broker_probe.exe"
+        OR EXISTS "${_x86_broker_build}/Debug/qiqi_broker_probe.exe"))
     find_program(QIQI_BROKER_POWERSHELL_EXECUTABLE
         NAMES pwsh powershell
         REQUIRED)
@@ -134,9 +136,10 @@ if(CMAKE_SIZEOF_VOID_P EQUAL 8
             -X64BuildDirectory
             "${CMAKE_BINARY_DIR}"
             -X86BuildDirectory
-            "${PROJECT_SOURCE_DIR}/build/x86"
+            "${_x86_broker_build}"
             -Configuration
-            Release
+            "$<CONFIG>"
+        CONFIGURATIONS Debug Release
     )
     set_tests_properties(
         QiQiConfigBrokerCrossArchTest

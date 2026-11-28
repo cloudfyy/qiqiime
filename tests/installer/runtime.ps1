@@ -20,6 +20,43 @@ function Assert-MissingRuntime([hashtable]$Dlls, [bool]$Os64, [string]$ExpectedM
     Assert-True $rejected "Incomplete runtime must fail: $ExpectedMessage"
 }
 
+function Test-DualArchBuildOrder([string]$FixtureRoot) {
+    $scripts = Join-Path $FixtureRoot "scripts"
+    New-Item -ItemType Directory -Path $scripts | Out-Null
+    foreach ($name in "build_all.ps1", "common.ps1") {
+        Copy-Item -LiteralPath (Join-Path $PSScriptRoot "..\..\scripts\$name") -Destination $scripts
+    }
+
+    $calls = [Collections.Generic.List[string]]::new()
+    $failX86 = $false
+    function cmake {
+        $global:LASTEXITCODE = 0
+        if ($args[0] -eq "-S") { return }
+        Assert-True ($args[0] -eq "--build" -and $args[2] -eq "--config") "Unexpected CMake arguments."
+        $arch = Split-Path -Leaf $args[1]
+        $calls.Add("build:${arch}:$($args[3])")
+        if ($failX86 -and $arch -eq "x86") { $global:LASTEXITCODE = 42 }
+    }
+    function ctest {
+        Assert-True ($args[0] -eq "--test-dir" -and $args[2] -eq "-C") "Unexpected CTest arguments."
+        $arch = Split-Path -Leaf $args[1]
+        $calls.Add("test:${arch}:$($args[3])")
+        $global:LASTEXITCODE = 0
+    }
+
+    $buildAll = Join-Path $scripts "build_all.ps1"
+    & $buildAll -Generator Fixture -Config Debug
+    Assert-True (($calls -join ",") -eq "build:x64:Debug,build:x86:Debug,test:x64:Debug,test:x86:Debug") `
+        "Both architectures must finish building before either CTest suite starts."
+
+    $calls.Clear()
+    $failX86 = $true
+    $messages = @(& $buildAll -Generator Fixture 2>&1)
+    Assert-True ($LASTEXITCODE -eq 42) "Expected the x86 build failure code; got $LASTEXITCODE. $messages"
+    Assert-True (($calls -join ",") -eq "build:x64:Release,build:x86:Release") `
+        "A failed x86 build must not run tests with stale binaries."
+}
+
 $fixture = Join-Path ([System.IO.Path]::GetTempPath()) ("qiqi-runtime-" + [guid]::NewGuid().ToString("N"))
 try {
     $x86Dir = Join-Path $fixture "x86"
@@ -88,7 +125,8 @@ try {
         $rejected = $true
     }
     Assert-True $rejected "x64 registration must be rejected on 32-bit Windows."
-    Write-Host "Native x86 / WOW64 runtime validation and regsvr32 selection passed."
+    Test-DualArchBuildOrder $fixture
+    Write-Host "Native x86 / WOW64 runtime validation, regsvr32 selection, and dual-arch build order passed."
 } finally {
     if (Test-Path -LiteralPath $fixture) {
         Remove-Item -LiteralPath $fixture -Recurse -Force

@@ -19,7 +19,8 @@ if ([string]::IsNullOrWhiteSpace($Generator)) {
     $Generator = Get-QiQiDefaultVsGenerator
 }
 
-foreach ($t in (Get-QiQiBuildTargets)) {
+$targets = @(Get-QiQiBuildTargets)
+foreach ($t in $targets) {
     $cacheFile = Join-Path $t.BuildDir "CMakeCache.txt"
     $configuredTriplet = if (Test-Path $cacheFile) {
         $line = Select-String -LiteralPath $cacheFile -Pattern '^VCPKG_TARGET_TRIPLET:[^=]*=(.*)$' |
@@ -44,7 +45,10 @@ foreach ($t in (Get-QiQiBuildTargets)) {
         Write-Error "CMake build ($($t.Name), $Config) failed with exit code $buildExitCode." -ErrorAction Continue
         exit $buildExitCode
     }
+}
 
+# The x64 Broker cross-architecture test uses the x86 build from this run.
+foreach ($t in $targets) {
     if ($SkipTests) {
         Write-QiQiWarn "Skipping CTest for $($t.Name) ($Config) because -SkipTests was requested."
     } else {
