@@ -10,6 +10,7 @@ struct ShiftTapModifiers {
     bool ctrl = false;
     bool alt = false;
     bool mouse = false;
+    bool caps_lock = false;
 };
 
 class ShiftTapTracker {
@@ -34,10 +35,11 @@ public:
         uint64_t now, bool is_auto_repeat, bool enabled, ShiftTapModifiers modifiers) noexcept {
         if (!is_auto_repeat && !candidate_) {
             ++sequence_;
-            candidate_ = enabled && !modifiers.ctrl && !modifiers.alt && !modifiers.mouse;
+            candidate_ = enabled && !modifiers.ctrl && !modifiers.alt && !modifiers.mouse && !modifiers.caps_lock;
             press_tick_ = candidate_ ? now : 0;
             return !enabled ? "disabled" : modifiers.ctrl ? "ctrl" :
-                   modifiers.alt ? "alt" : modifiers.mouse ? "mouse-button" : "armed";
+                   modifiers.alt ? "alt" : modifiers.mouse ? "mouse-button" :
+                   modifiers.caps_lock ? "caps-lock" : "armed";
         }
         if (now - press_tick_ > kMaxDurationMs || modifiers.mouse) {
             Disarm();
@@ -52,6 +54,7 @@ public:
         if (modifiers.mouse) return "mouse-button";
         if (modifiers.ctrl) return "ctrl";
         if (modifiers.alt) return "alt";
+        if (modifiers.caps_lock) return "caps-lock";
         return nullptr;
     }
 

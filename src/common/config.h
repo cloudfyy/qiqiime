@@ -177,6 +177,7 @@ struct QiQiConfig {
     bool default_full_width = false;
     bool default_chinese_punct = true;
     bool shift_toggle_mode = true;
+    bool caps_lock_toggle_mode = false;
     // Keep the persisted key for compatibility; also applies when switching away from this IME.
     bool commit_on_english_switch = true;
     bool show_status_bar = false;
@@ -298,7 +299,8 @@ inline constexpr auto kConfigFields = std::tuple{
     ConfigField{"single_character_mode", L"SingleCharacterMode", &QiQiConfig::single_character_mode, 0, 1, true},
     ConfigField{"full_code_practice", L"FullCodePractice", &QiQiConfig::full_code_practice, 0, 1, true},
     ConfigField{"phrase_char_selection", L"PhraseCharSelection", &QiQiConfig::phrase_char_selection, 0, 1, true},
-    ConfigField{"enable_z_pinyin_lookup", L"EnableZPinyinLookup", &QiQiConfig::enable_z_pinyin_lookup, 0, 1, true}
+    ConfigField{"enable_z_pinyin_lookup", L"EnableZPinyinLookup", &QiQiConfig::enable_z_pinyin_lookup, 0, 1, true},
+    ConfigField{"caps_lock_toggle_mode", L"CapsLockToggleMode", &QiQiConfig::caps_lock_toggle_mode, 0, 1, true}
 };
 
 template <typename Visitor>

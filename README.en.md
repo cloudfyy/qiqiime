@@ -105,6 +105,12 @@ and AppContainer guides are available in English.
   when enabling practice. A missing, invalid, or unreadable index prevents
   enabling practice; ordinary input does not depend on it.
 - Chinese/English, full-width/half-width, and Chinese/English punctuation modes.
+- **Optional Caps Lock switch** (off by default, under Settings → Input): a
+  standalone Caps Lock press toggles Chinese/English once and follows the
+  unfinished-input setting. A Shift tap remains independent. Holding Shift first
+  prevents the Caps Lock toggle; pressing Shift while still holding Caps Lock
+  does not toggle a second time. Wubi ignores Windows Caps Lock when enabled,
+  while English still follows Windows. The IME does not reset the system lock state.
 - **Unfinished input:** Commit raw code (default) or Discard unfinished input
   applies when leaving an input field or window, switching to English mode,
   or switching to another IME or keyboard layout. Only the still-owned

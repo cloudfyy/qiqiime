@@ -126,6 +126,7 @@ void TestSettingsZipBackupFlow() {
     archived.full_code_practice = true;
     archived.phrase_char_selection = true;
     archived.enable_z_pinyin_lookup = true;
+    archived.caps_lock_toggle_mode = true;
     archived.commit_on_english_switch = false;
     QIQI_TEST_CHECK(WriteFileAtomically(
         custom, codec::AsByteSpan(std::string_view("abcd 自定义主词条\n"))));
@@ -176,6 +177,7 @@ void TestSettingsZipBackupFlow() {
     current.full_code_practice = false;
     current.phrase_char_selection = false;
     current.enable_z_pinyin_lookup = false;
+    current.caps_lock_toggle_mode = false;
     QIQI_TEST_CHECK(SaveConfig(current));
     QIQI_TEST_CHECK(source.AddUserEntryResult(L"mnop", L"本机保留词", user) == S_OK);
 
@@ -234,12 +236,13 @@ void TestSettingsZipBackupFlow() {
     QIQI_TEST_CHECK(restored.primary_dict == PrimaryDict::Custom &&
         restored.page_size == 7 && restored.ui_theme == UiTheme::Dark &&
         !restored.enable_code_completion && restored.single_character_mode && restored.full_code_practice &&
-        restored.phrase_char_selection && restored.enable_z_pinyin_lookup && !restored.commit_on_english_switch);
+        restored.phrase_char_selection && restored.enable_z_pinyin_lookup && restored.caps_lock_toggle_mode &&
+        !restored.commit_on_english_switch);
     QiQiConfig visible;
     ReadSettingsFromWindowControls(window.Get(), visible);
     QIQI_TEST_CHECK(visible.page_size == restored.page_size &&
         visible.ui_theme == restored.ui_theme && visible.single_character_mode && visible.full_code_practice &&
-        visible.phrase_char_selection && visible.enable_z_pinyin_lookup);
+        visible.phrase_char_selection && visible.enable_z_pinyin_lookup && visible.caps_lock_toggle_mode);
     QIQI_TEST_CHECK(QueryRegistryConfigSequence() > before_restore);
 
     WubiEngine loaded;

@@ -481,6 +481,118 @@ void TestFocusChangeCompositionPolicy() {
     }
 }
 
+void TestCapsLockModeSwitch() {
+    const TsfTestCaseTrace trace(__func__);
+    const ServiceFlowTestFixture fixture;
+    const auto set_keys = [](BYTE caps, bool shift) {
+        std::array<BYTE, 256> keyboard{};
+        gsl::at(keyboard, VK_CAPITAL) = caps;
+        if (shift) gsl::at(keyboard, VK_SHIFT) = 0x80;
+        QIQI_TEST_CHECK(::SetKeyboardState(keyboard.data()));
+    };
+
+    for (const bool preserve : {false, true}) {
+        const TsfTestCaseTrace policy_trace(preserve ? "caps-lock.keep-code" : "caps-lock.discard-code");
+        QiQiConfig config;
+        config.primary_dict = PrimaryDict::BuiltinOnly;
+        config.commit_on_english_switch = preserve;
+        QIQI_TEST_CHECK(SaveConfigToRegistry(config));
+        const auto service = MakeComObject<QiQiTextService>(g_dll_instance);
+        const auto manager = MakeComObject<MockTfThreadMgr>();
+        manager->show_own_ui_ = FALSE;
+        QIQI_TEST_CHECK(service->Activate(manager.Get(), 1) == S_OK && manager->openclose_compartment_);
+        const auto deactivate = gsl::finally([&]() noexcept {
+            QIQI_TEST_CHECK_CLEANUP(service->Deactivate() == S_OK);
+        });
+        const auto context = MakeComObject<MockTfContext>();
+        const auto mode = [&]() noexcept { return manager->openclose_compartment_->last_val_; };
+        const auto down = [&](UINT key, bool eaten, LPARAM flags = 0) {
+            const LONG before = mode();
+            BOOL result = FALSE;
+            QIQI_TEST_CHECK(service->OnTestKeyDown(context.Get(), key, flags, &result) == S_OK &&
+                            (result != FALSE) == eaten);
+            QIQI_TEST_CHECK(mode() == before);
+            QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), key, flags, &result) == S_OK &&
+                            (result != FALSE) == eaten);
+        };
+        const auto up = [&](UINT key, bool eaten) {
+            const LONG before = mode();
+            BOOL result = FALSE;
+            QIQI_TEST_CHECK(service->OnTestKeyUp(context.Get(), key, 0, &result) == S_OK &&
+                            (result != FALSE) == eaten);
+            QIQI_TEST_CHECK(mode() == before);
+            QIQI_TEST_CHECK(service->OnKeyUp(context.Get(), key, 0, &result) == S_OK &&
+                            (result != FALSE) == eaten);
+        };
+
+        constexpr LPARAM repeat = 1L << 30;
+        set_keys(0x01, false);
+        down(VK_CAPITAL, false);
+        up(VK_CAPITAL, false);
+        down('A', false);
+        QIQI_TEST_CHECK(mode() == 1 && !context->last_composition_);
+
+        set_keys(0, false);
+        down('A', true);
+        const auto default_composition = context->last_composition_;
+        QIQI_TEST_CHECK(default_composition && !default_composition->ended_);
+        set_keys(0x01, false);
+        down(VK_CAPITAL, false);
+        up(VK_CAPITAL, false);
+        QIQI_TEST_CHECK(mode() == 1 && default_composition->ended_ && context->range_->text_ == L"a");
+
+        config.caps_lock_toggle_mode = true;
+        QIQI_TEST_CHECK(SaveConfigToRegistry(config));
+        QIQI_TEST_CHECK(service->OnChange(kGuidCompartmentConfigVersion) == S_OK);
+        if (preserve) {
+            down('Z', true);
+            down('A', true);
+            down(VK_RETURN, true);
+            QIQI_TEST_CHECK(mode() == 1 && context->range_->text_ == L"A");
+        }
+        down('A', true);
+        const auto composition = context->last_composition_;
+        QIQI_TEST_CHECK(composition && !composition->ended_ && context->range_->text_ == L"a");
+        down(VK_CAPITAL, true);
+        down(VK_CAPITAL, true, repeat);
+        up(VK_CAPITAL, true);
+        QIQI_TEST_CHECK(mode() == 0 && composition->ended_ && composition->end_composition_calls_ == 1);
+        QIQI_TEST_CHECK(context->range_->text_ == (preserve ? L"a" : L""));
+        QIQI_TEST_CHECK((::GetKeyState(VK_CAPITAL) & 1) != 0);
+        down('B', false);
+        down(VK_CAPITAL, false, repeat);
+
+        if (!preserve) continue;
+
+        set_keys(0x01, true);
+        down(VK_SHIFT, false);
+        down(VK_CAPITAL, false);
+        up(VK_CAPITAL, false);
+        set_keys(0x01, false);
+        up(VK_SHIFT, false);
+        QIQI_TEST_CHECK(mode() == 0);
+
+        set_keys(0x81, false);
+        down(VK_CAPITAL, true);
+        QIQI_TEST_CHECK(mode() == 1);
+        set_keys(0x81, true);
+        down(VK_SHIFT, false);
+        set_keys(0x81, false);
+        up(VK_SHIFT, false);
+        set_keys(0x01, false);
+        up(VK_CAPITAL, true);
+        QIQI_TEST_CHECK(mode() == 1);
+
+        down(VK_SHIFT, false);
+        up(VK_SHIFT, true);
+        QIQI_TEST_CHECK(mode() == 0);
+        context->status_read_only_ = true;
+        down(VK_CAPITAL, false);
+        up(VK_CAPITAL, false);
+        QIQI_TEST_CHECK(mode() == 0);
+    }
+}
+
 void TestShiftTapTracking() {
     const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     ShiftTapTracker tracker;
@@ -511,12 +623,13 @@ void TestShiftTapTracking() {
     tracker.Reset();
     QIQI_TEST_CHECK(tracker.ElapsedMs(1352) == 0 && tracker.Sequence() == sequence);
 
-    for (uint32_t mask = 0; mask < 8; ++mask) {
-        const ShiftTapModifiers modifiers{(mask & 1) != 0, (mask & 2) != 0, (mask & 4) != 0};
+    for (uint32_t mask = 0; mask < 16; ++mask) {
+        const ShiftTapModifiers modifiers{(mask & 1) != 0, (mask & 2) != 0, (mask & 4) != 0, (mask & 8) != 0};
         for (const bool enabled : {false, true}) {
             tracker.Reset();
             const char* expected = !enabled ? "disabled" : modifiers.ctrl ? "ctrl" :
-                                   modifiers.alt ? "alt" : modifiers.mouse ? "mouse-button" : "armed";
+                                   modifiers.alt ? "alt" : modifiers.mouse ? "mouse-button" :
+                                   modifiers.caps_lock ? "caps-lock" : "armed";
             QIQI_TEST_CHECK(std::string_view(tracker.OnKeyDown(2000, false, enabled, modifiers)) == expected);
             QIQI_TEST_CHECK(tracker.IsCandidate() == (enabled && mask == 0));
         }
@@ -527,7 +640,8 @@ void TestShiftTapTracking() {
         if (mask == 0) {
             QIQI_TEST_CHECK(reason == nullptr);
         } else {
-            const char* expected = modifiers.mouse ? "mouse-button" : modifiers.ctrl ? "ctrl" : "alt";
+            const char* expected = modifiers.mouse ? "mouse-button" : modifiers.ctrl ? "ctrl" :
+                                   modifiers.alt ? "alt" : "caps-lock";
             QIQI_TEST_CHECK(reason && std::string_view(reason) == expected);
         }
         QIQI_TEST_CHECK(std::string_view(tracker.ReleaseReason(2351, modifiers)) == "timeout");

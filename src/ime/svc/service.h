@@ -135,6 +135,7 @@ private:
         bool shift = false;
         bool ctrl = false;
         bool alt = false;
+        bool win = false;
         bool caps = false;
         LPARAM flags = 0;
     };
@@ -184,6 +185,9 @@ private:
     void HandleLangBarMenuAction(LangBarMenuId action_id);
     void HandleFocusChanged(bool has_focus, FocusNotificationSource source);
     static KeyEvent ReadKeyEvent(WPARAM key, LPARAM flags) noexcept;
+    bool ShouldEatCapsLockDown(const KeyEvent& key) const noexcept;
+    bool ShouldEatCapsLockUp(ITfContext* context) const noexcept;
+    bool EffectiveCapsLock(bool system_locked, bool use_current_composition) const noexcept;
     void HandleTestKeyDown(ITfContext* context, const KeyEvent& key, gsl::not_null<BOOL*> eaten) noexcept;
     void HandleKeyDown(ITfContext* context, const KeyEvent& key, gsl::not_null<BOOL*> eaten);
     void HandleTestKeyUp(ITfContext* context, uint32_t vk, gsl::not_null<BOOL*> eaten) noexcept;
@@ -323,6 +327,7 @@ private:
     std::optional<ImeSkinSnapshot> ime_skin_snapshot_;
     WubiEngine engine_;
     ShiftTapTracker shift_tap_;
+    bool caps_lock_press_handled_ = false;
 };
 
 // Global DLL instance and active COM object counter

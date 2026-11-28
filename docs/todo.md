@@ -56,7 +56,7 @@
 | `-` / `=`、PageUp / PageDown | 已有上一页/下一页；上下键可配置为翻页。 |
 | `,` / `.` 翻页及自定义翻页键 | 未做；当前逗号句号走标点路径，不能直接改默认，见 W07。 |
 | 轻按 Shift / `Ctrl+Space` | 已有中英文切换；可关闭 Shift 轻按切换，Shift 组合键不是切换操作。 |
-| CapsLock 切换中英文 | 没有可选模式开关；当前保留系统大写锁定/英文直通，五笔组合中按下会提交编码并放行系统切换，见 W06。 |
+| CapsLock 切换中英文 | 可在「输入习惯」开启，默认保留系统大写锁定/英文直通。开启后独立于轻按 Shift，并沿用未完成输入策略，见 W06。 |
 | `Shift+Space` / `Ctrl+.` | 已有全半角 / 中英文标点切换。 |
 | `Ctrl+Shift+F` | 未绑定，繁简转换本身也未做，见 W10、W07。 |
 | `z` 拼音反查 | 可将中文空闲时的首码 `z` 改为拼音反查；默认临时英文及码中通配不变，见 W05。 |
@@ -86,7 +86,7 @@ P2 补充可配置性及数据能力，P3 为较大扩展或暂缓项。
 | 3 | P1 | [W03 全码练习](#wubi-w03)（已完成） | 仅允许可核验的精确全码，不改词库或 FSM。 |
 | 4 | P1 | [W04 以词定字](#wubi-w04)（已完成） | 默认关闭，使用 `[` / `]`；只作用于尚未上屏的高亮词组。 |
 | 5 | P1 | [W05 离线拼音反查五笔码](#wubi-w05)（已实现） | 默认保留临时英文；开启后首码 `z` 查单字及五笔码。 |
-| 6 | P2 | [W06 可选 CapsLock 中英切换](#wubi-w06) | 复用统一模式切换与未完成输入策略，保留默认英文直通。 |
+| 6 | P2 | [W06 可选 CapsLock 中英切换](#wubi-w06)（已实现） | 复用统一模式切换与未完成输入策略，保留默认英文直通。 |
 | 7 | P2 | [W07 快捷键配置及兼容预设](#wubi-w07) | 统一处理快捷键、翻页别名和冲突；功能不存在时不注册空操作。 |
 | 8 | P2 | [W08 字符集 / 生僻字过滤](#wubi-w08) | 先定义字符集口径，复用 W02 的候选过滤接入点。 |
 | 9 | P2 | [W09 以形查音 / 拼音提示](#wubi-w09) | 复用 W05 的读音数据阶段；不依赖混输或字根绘制。 |
@@ -1001,15 +1001,13 @@ status-bar/tooltip skin support require separate design approval.
   composition. Persist as `SingleCharacterMode` (DWORD 0/1) and
   `single_character_mode` (backup Boolean).
 
-- [ ] <a id="wubi-w06"></a> **W06 / P2:** Add an optional CapsLock Chinese/English mode-switch setting.
-  Preserve CapsLock English pass-through as the default. Reuse the shared mode
-  switching path and intercept CapsLock in the optional mode so switching does
-  not also toggle the OS uppercase lock. Confirm pending-composition behavior
-  and handling of an already-enabled OS CapsLock state before implementation.
-  Persist the setting and expose it in the settings UI. Keep TSF compartments
-  and mode indicators synchronized, preserve restricted-input behavior, and
-  add focused tests for prediction callbacks, key repeat, composition handling,
-  and both CapsLock modes.
+- [x] <a id="wubi-w06"></a> **W06 / P2：可选 CapsLock 中英切换。**
+  「输入习惯」的 `CapsLockToggleMode`（ZIP 字段 `caps_lock_toggle_mode`）
+  默认关闭。启用时单按 CapsLock 切换，长按只切一次。若 Shift 已按住，
+  CapsLock 不切换；若 CapsLock 已切换且仍按住，再按 Shift 不会再切一次。
+  沿用既有模式切换、TSF 同步和未完成输入策略，
+  不新增 FSM 状态。系统已开启大写锁定时五笔中文仍可用，英文按系统大小写。
+  不模拟按键、不改系统锁定状态，真实键盘灯和宿主行为仍需实机验证。
 
 - [x] <a id="wubi-w01"></a> **W01 / P1:** Persist three Space/Enter behaviors
   for Wubi composition on the Settings Input page:

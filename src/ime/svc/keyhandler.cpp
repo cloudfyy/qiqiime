@@ -26,8 +26,9 @@ bool IsAnyMouseButtonDown() noexcept {
     return IsKeyDown(VK_LBUTTON) || IsKeyDown(VK_RBUTTON) || IsKeyDown(VK_MBUTTON);
 }
 
-ShiftTapModifiers ReadShiftTapModifiers() noexcept {
-    return {IsKeyDown(VK_CONTROL), IsKeyDown(VK_MENU), IsAnyMouseButtonDown()};
+ShiftTapModifiers ReadShiftTapModifiers(bool caps_lock_switch_enabled) noexcept {
+    return {IsKeyDown(VK_CONTROL), IsKeyDown(VK_MENU), IsAnyMouseButtonDown(),
+        caps_lock_switch_enabled && IsKeyDown(VK_CAPITAL)};
 }
 
 bool IsCapsLockOn() noexcept {
@@ -38,6 +39,10 @@ constexpr bool IsShiftVirtualKey(uint32_t vk) noexcept {
     return vk == VK_SHIFT || vk == VK_LSHIFT || vk == VK_RSHIFT;
 }
 
+constexpr bool IsKeyRepeat(LPARAM flags) noexcept {
+    return (flags & (1LL << 30)) != 0;
+}
+
 } // namespace
 
 QiQiTextService::KeyEvent QiQiTextService::ReadKeyEvent(WPARAM key, LPARAM flags) noexcept {
@@ -46,9 +51,25 @@ QiQiTextService::KeyEvent QiQiTextService::ReadKeyEvent(WPARAM key, LPARAM flags
         .shift = IsKeyDown(VK_SHIFT),
         .ctrl = IsKeyDown(VK_CONTROL),
         .alt = IsKeyDown(VK_MENU),
+        .win = key == VK_CAPITAL && (IsKeyDown(VK_LWIN) || IsKeyDown(VK_RWIN)),
         .caps = IsCapsLockOn(),
         .flags = flags,
     };
+}
+
+bool QiQiTextService::ShouldEatCapsLockDown(const KeyEvent& key) const noexcept {
+    if (IsKeyRepeat(key.flags)) return caps_lock_press_handled_;
+    return config_.caps_lock_toggle_mode && !key.shift && !key.ctrl && !key.alt && !key.win;
+}
+
+bool QiQiTextService::ShouldEatCapsLockUp(ITfContext* context) const noexcept {
+    if (!caps_lock_press_handled_ || IsContextKeyboardDisabled(context)) return false;
+    return caps_lock_press_handled_;
+}
+
+bool QiQiTextService::EffectiveCapsLock(bool system_locked, bool use_current_composition) const noexcept {
+    return system_locked && (!config_.caps_lock_toggle_mode || !engine_.IsChineseMode() ||
+        (use_current_composition && engine_.IsTempEnglishMode()));
 }
 
 void QiQiTextService::LogShiftTap(std::string_view stage, uint32_t vk, const ITfContext* context,
@@ -69,8 +90,7 @@ void QiQiTextService::LogShiftTap(std::string_view stage, uint32_t vk, const ITf
 
 void QiQiTextService::TrackShiftTapKeyDown(std::string_view stage, uint32_t vk, ITfContext* context,
                                          LPARAM flags) noexcept {
-    const bool is_auto_repeat = (flags & (1LL << 30)) != 0;
-    const auto modifiers = ReadShiftTapModifiers();
+    const auto modifiers = ReadShiftTapModifiers(config_.caps_lock_toggle_mode || caps_lock_press_handled_);
     const char* reason = nullptr;
     ITfContext* const effective_ctx = context ? context : composition_lifecycle_.Context().Get();
     if (const auto blocked = GetInputBlockReason(); blocked != InputBlockReason::None) {
@@ -80,7 +100,7 @@ void QiQiTextService::TrackShiftTapKeyDown(std::string_view stage, uint32_t vk, 
         reason = "keyboard-disabled";
         shift_tap_.Reset();
     } else {
-        reason = shift_tap_.OnKeyDown(::GetTickCount64(), is_auto_repeat, config_.shift_toggle_mode, modifiers);
+        reason = shift_tap_.OnKeyDown(::GetTickCount64(), IsKeyRepeat(flags), config_.shift_toggle_mode, modifiers);
     }
     LogShiftTap(stage, vk, context, false, reason);
     QIQI_LOG_CAT_DEBUG(
@@ -103,7 +123,7 @@ bool QiQiTextService::HandleShiftTapKeyUp(std::string_view stage, uint32_t vk, c
         return false;
     }
     const auto now = ::GetTickCount64();
-    const auto modifiers = ReadShiftTapModifiers();
+    const auto modifiers = ReadShiftTapModifiers(config_.caps_lock_toggle_mode || caps_lock_press_handled_);
     const char* reason = shift_tap_.ReleaseReason(now, modifiers);
     LogShiftTap(stage, vk, context, reason == nullptr, reason ? reason : "accepted");
     if (!test_only) {
@@ -116,9 +136,9 @@ bool QiQiTextService::HandleShiftTapKeyUp(std::string_view stage, uint32_t vk, c
 
 void QiQiTextService::HandleTestKeyDown(
     ITfContext* pic, const KeyEvent& key, gsl::not_null<BOOL*> pfEaten) noexcept {
-    const auto [vk, shift, ctrl, alt, caps, flags] = key;
+    const uint32_t vk = key.vk;
     if (IsShiftVirtualKey(vk)) {
-        TrackShiftTapKeyDown("OnTestKeyDown", vk, pic, flags);
+        TrackShiftTapKeyDown("OnTestKeyDown", vk, pic, key.flags);
         *pfEaten = FALSE;
         return;
     }
@@ -139,9 +159,16 @@ void QiQiTextService::HandleTestKeyDown(
     if (shift_tap_.IsCandidate()) LogShiftTap("OnTestKeyDown", 0, pic, false, "other-key-cancelled");
     shift_tap_.Reset();
 
-    const bool eat_key = pic == composition_lifecycle_.Context().Get()
-        ? engine_.ShouldEatKey(vk, shift, ctrl, alt, caps)
-        : engine_.ShouldEatKeyAfterReset(vk, shift, ctrl, alt, caps);
+    if (vk == VK_CAPITAL && (config_.caps_lock_toggle_mode || caps_lock_press_handled_)) {
+        *pfEaten = ShouldEatCapsLockDown(key) ? TRUE : FALSE;
+        return;
+    }
+
+    const bool same_context = pic == composition_lifecycle_.Context().Get();
+    const bool caps = EffectiveCapsLock(key.caps, same_context);
+    const bool eat_key = same_context
+        ? engine_.ShouldEatKey(vk, key.shift, key.ctrl, key.alt, caps)
+        : engine_.ShouldEatKeyAfterReset(vk, key.shift, key.ctrl, key.alt, caps);
     *pfEaten = eat_key ? TRUE : FALSE;
 }
 
@@ -161,11 +188,11 @@ bool QiQiTextService::CheckShiftContextAccess(
 
 void QiQiTextService::HandleKeyDown(
     ITfContext* pic, const KeyEvent& key, gsl::not_null<BOOL*> pfEaten) {
-    const auto [vk, shift, ctrl, alt, caps, flags] = key;
+    const uint32_t vk = key.vk;
     if (IsShiftVirtualKey(vk)) {
         if (CheckShiftContextAccess(pic, "OnKeyDown", vk)) {
             // Hosts may dispatch directly, without the test callback. Do not bind a context for Shift.
-            TrackShiftTapKeyDown("OnKeyDown", vk, pic, flags);
+            TrackShiftTapKeyDown("OnKeyDown", vk, pic, key.flags);
         }
         *pfEaten = FALSE;
         return;
@@ -174,6 +201,15 @@ void QiQiTextService::HandleKeyDown(
     if (shift_tap_.IsCandidate())
         LogShiftTap("OnKeyDown", 0, pic, false, "other-key-cancelled");
     shift_tap_.Reset();
+    if (vk == VK_CAPITAL) {
+        const bool eat_key = initial_policy.can_input && ShouldEatCapsLockDown(key);
+        caps_lock_press_handled_ = eat_key;
+        if (eat_key || config_.caps_lock_toggle_mode) {
+            *pfEaten = eat_key ? TRUE : FALSE;
+            if (eat_key && !IsKeyRepeat(key.flags)) ToggleModeAndFinishComposition(pic);
+            return;
+        }
+    }
     if (!initial_policy.can_input) {
         *pfEaten = FALSE;
         return;
@@ -192,26 +228,27 @@ void QiQiTextService::HandleKeyDown(
         std::ignore = engine_.SynchronizeCrossProcessChanges(sync::InputBoundary::NewInput);
     }
 
+    const bool caps = EffectiveCapsLock(key.caps, true);
     if (vk == VK_CAPITAL && engine_.IsComposing()) {
         // Industry standard: pressing CapsLock mid-composition commits the raw English code
         // while letting VK_CAPITAL pass through (*pfEaten = FALSE) so Windows toggles CapsLock state.
         *pfEaten = FALSE;
         const KeyProcessResult result = engine_.ProcessKey(
-            vk, shift, ctrl, alt, caps, active_policy.can_learn, true);
+            vk, key.shift, key.ctrl, key.alt, caps, active_policy.can_learn, true);
         if (pic && result.action != KeyActionType::PassThrough) {
             ApplyEngineResult(pic, result);
         }
         return;
     }
 
-    if (!engine_.ShouldEatKey(vk, shift, ctrl, alt, caps)) {
+    if (!engine_.ShouldEatKey(vk, key.shift, key.ctrl, key.alt, caps)) {
         *pfEaten = FALSE;
         return;
     }
 
     *pfEaten = TRUE;
     const KeyProcessResult result = engine_.ProcessKey(
-        vk, shift, ctrl, alt, caps, active_policy.can_learn, true);
+        vk, key.shift, key.ctrl, key.alt, caps, active_policy.can_learn, true);
     if (result.empty_4code_warning) {
         PlayImeSound(SoundEffectKind::EmptyCodeBeep);
     } else if (result.dup_4code_warning) {
@@ -226,6 +263,10 @@ void QiQiTextService::HandleKeyDown(
 
 void QiQiTextService::HandleTestKeyUp(
     ITfContext* pic, uint32_t vk, gsl::not_null<BOOL*> pfEaten) noexcept {
+    if (vk == VK_CAPITAL) {
+        *pfEaten = ShouldEatCapsLockUp(pic) ? TRUE : FALSE;
+        return;
+    }
     ITfContext* const effective_ctx = pic ? pic : composition_lifecycle_.Context().Get();
     if (IsShiftVirtualKey(vk) && effective_ctx && IsContextKeyboardDisabled(effective_ctx)) {
         LogShiftTap("OnTestKeyUp", vk, pic, false, "keyboard-disabled");
@@ -239,6 +280,11 @@ void QiQiTextService::HandleTestKeyUp(
 
 void QiQiTextService::HandleKeyUp(
     ITfContext* pic, uint32_t vk, gsl::not_null<BOOL*> pfEaten) {
+    if (vk == VK_CAPITAL) {
+        *pfEaten = ShouldEatCapsLockUp(pic) ? TRUE : FALSE;
+        caps_lock_press_handled_ = false;
+        return;
+    }
     if (IsShiftVirtualKey(vk) && !CheckShiftContextAccess(pic, "OnKeyUp", vk)) {
         *pfEaten = FALSE;
         return;

@@ -162,9 +162,17 @@ flowchart TD
     Edit --> UI["End candidate UI, or update composition and candidates, as the result requires"]
 ```
 
-This diagram covers ordinary key-down input. Shift tracking and CapsLock's
-commit-with-pass-through path are separate. A skipped or failed edit does not
-undo the key-consumption decision made before requesting host edits.
+This diagram covers ordinary key-down input. Shift taps and the optional bare
+CapsLock press share the same mode switch and unfinished-input policy. With the
+option off, CapsLock still uses the original commit-with-pass-through path.
+With it on, key prediction does not change mode. The admitted initial press
+switches once; repeats and a matching release are consumed while input remains
+allowed. Holding Shift before pressing CapsLock prevents a switch. Pressing
+Shift while still holding CapsLock does not switch a second time. Wubi ignores
+the Windows lock bit, while English and temporary English retain it. TSF
+handling does not synthesize key events or reset the system lock state. A skipped
+or failed edit does not undo the key-consumption decision made before requesting
+host edits.
 
 The request-to-callback edge assumes TSF delivers the request; delivery may be
 synchronous or deferred when no explicit ASYNC is required. Rejection or

@@ -49,7 +49,7 @@ struct SettingsCheckboxBinding {
     int width_px;
 };
 
-constexpr std::array<SettingsCheckboxBinding, 19> kSettingsCheckboxes = {{
+constexpr std::array<SettingsCheckboxBinding, 20> kSettingsCheckboxes = {{
     {kIdChkExtraDict, &QiQiConfig::enable_jidian_extra, &UiStrings::dlg_chk_extra,
      layout::kLeftColumn, layout::kDictionaryFirstRow + layout::kDictionaryRowStep, layout::kOptionWidth},
     {kIdChkAutoCommit4, &QiQiConfig::auto_commit_4code, &UiStrings::dlg_chk_auto_commit4,
@@ -74,6 +74,8 @@ constexpr std::array<SettingsCheckboxBinding, 19> kSettingsCheckboxes = {{
      layout::kLeftColumn, layout::kInputFirstRow + 4 * layout::kInputRowStep, layout::kOptionWidth},
     {kIdChkShiftToggle, &QiQiConfig::shift_toggle_mode, &UiStrings::dlg_chk_shift_toggle,
      layout::kLeftColumn, layout::kInputFirstRow + 5 * layout::kInputRowStep, layout::kOptionWidth},
+    {kIdChkCapsLockToggle, &QiQiConfig::caps_lock_toggle_mode, &UiStrings::dlg_chk_caps_lock_toggle,
+     layout::kLeftColumn, layout::kInputFirstRow + 12 * layout::kInputRowStep, layout::kOptionWidth},
     {kIdChkUpDownPageTurn, &QiQiConfig::up_down_page_turn, &UiStrings::dlg_chk_up_down_page_turn,
      layout::kLeftColumn, layout::kInputFirstRow + 6 * layout::kInputRowStep, layout::kOptionWidth},
     {kIdChkStatusBar, &QiQiConfig::show_status_bar, &UiStrings::dlg_chk_status_bar,

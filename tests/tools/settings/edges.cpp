@@ -22,7 +22,7 @@ struct CheckboxCase {
     const wchar_t* UiStrings::* label;
 };
 
-constexpr std::array<CheckboxCase, 19> kCheckboxCases = {{
+constexpr std::array<CheckboxCase, 20> kCheckboxCases = {{
     {kIdChkExtraDict, &QiQiConfig::enable_jidian_extra, &UiStrings::dlg_chk_extra},
     {kIdChkAutoCommit4, &QiQiConfig::auto_commit_4code, &UiStrings::dlg_chk_auto_commit4},
     {kIdChkPushCommit5, &QiQiConfig::push_commit_5th, &UiStrings::dlg_chk_push_commit5},
@@ -35,6 +35,7 @@ constexpr std::array<CheckboxCase, 19> kCheckboxCases = {{
     {kIdChkFullCodePractice, &QiQiConfig::full_code_practice, &UiStrings::dlg_chk_full_code_practice},
     {kIdChkDynamicFreq, &QiQiConfig::dynamic_phrase_freq, &UiStrings::dlg_chk_dynamic_freq},
     {kIdChkShiftToggle, &QiQiConfig::shift_toggle_mode, &UiStrings::dlg_chk_shift_toggle},
+    {kIdChkCapsLockToggle, &QiQiConfig::caps_lock_toggle_mode, &UiStrings::dlg_chk_caps_lock_toggle},
     {kIdChkStatusBar, &QiQiConfig::show_status_bar, &UiStrings::dlg_chk_status_bar},
     {kIdChkBoldUnderline, &QiQiConfig::bold_underline, &UiStrings::dlg_chk_bold_underline},
     {kIdChkBeepEmpty4, &QiQiConfig::beep_on_empty_4code, &UiStrings::dlg_chk_beep_empty4},

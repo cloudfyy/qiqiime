@@ -143,7 +143,7 @@ Repeat with the x86 preset and build directory. Use
 | Area | CTest names |
 | --- | --- |
 | Common, synchronization, engine | `QiQiCommonTest`, `QiQiChangeSyncTest`, `QiQiEngineTest` |
-| TSF and composition | `QiQiTsfUiTest`, `QiQiCompositionLifecycleTest` |
+| TSF and composition | `QiQiTsfUiTest`, `QiQiCompositionLifecycleTest`, `QiQiCapsLockSwitchTest` |
 | Desktop tools | `QiQiSettingsTest`, `QiQiDictManagerTest`, `QiQiLogMonitorTest`, `QiQiLogMonitorStartupTest`, `QiQiStandaloneToolsTest` |
 | Skin catalog, selection, rendering and input preservation | `QiQiSkinTest` |
 | Metrics | `QiQiMetricsTest`, `QiQiMonitorMetricsTest` |
@@ -157,6 +157,10 @@ on a worker that retains the WAV data, with at most one newer effect pending.
 
 To check the floating status bar and tooltips without the full TSF menu suite,
 run `.\build\x64\Release\qiqi_tsf_ui_test.exe --status-bar-tests` (or use `x86`).
+
+`QiQiCapsLockSwitchTest` exercises TSF key callbacks with a private registry
+and `LOCALAPPDATA`. It sets thread keyboard state without injecting physical
+keys or running the full desktop suite.
 
 Skin-specific catalog, chooser, candidate/menu rendering, and input-preservation
 cases run only in **QiQiSkinTest**, not the default Common/Settings/UI collections.

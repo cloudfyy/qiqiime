@@ -70,6 +70,7 @@ struct UiStrings {
     const wchar_t* dlg_chk_full_code_practice;
     const wchar_t* dlg_chk_dynamic_freq;
     const wchar_t* dlg_chk_shift_toggle;
+    const wchar_t* dlg_chk_caps_lock_toggle;
     const wchar_t* dlg_lbl_english_switch;
     const wchar_t* dlg_english_switch_commit;
     const wchar_t* dlg_english_switch_clear;
@@ -187,6 +188,7 @@ inline constexpr UiStrings kZhCnStrings = {
     L"全码练习（不使用简码、补全或通配）",
     L"启用词组动态调频 (单字不调频)",
     L"允许单按 Shift 键切换中英文",
+    L"单按 CapsLock 切换中英文",
     L"未完成输入的处理:",
     L"原始编码上屏",
     L"清除未完成输入",
@@ -252,6 +254,7 @@ inline constexpr UiStrings kZhCnStrings = {
     L"常用输入、选词、调序与快捷造词热键一览",
     L"【模式切换】\n"
     L"• 单按 Shift / Ctrl + Space：切换中 / 英文输入模式\n"
+    L"• 单按 CapsLock：可选中英切换（在「输入习惯」开启，默认关闭）\n"
     L"• Shift + Space：切换全角 / 半角字符模式\n"
     L"• Ctrl + .（句号）：切换中文 / 英文标点符号\n\n"
     L"【选词与翻页】\n"
@@ -263,7 +266,7 @@ inline constexpr UiStrings kZhCnStrings = {
     L"【特色输入】\n"
     L"• 首码 z：默认临时英文；在「输入习惯」可改为拼音反查，空格或数字选字\n"
     L"• 第 2–4 码输入 z：万能键通配查询并提示编码\n"
-    L"• 编码中按 CapsLock：已输编码转英文上屏并切换大写锁定\n\n"
+    L"• 默认行为：五笔编码中按 CapsLock，原码上屏，按键交给 Windows 锁定大写\n\n"
     L"【词库与调序】\n"
     L"• Ctrl + =（等号）：剪贴板快捷造词（复制 2–16 字词组后按键入库）\n"
     L"• Ctrl + 数字 1–9：组合态下将对应候选词置顶 / 取消置顶\n"
@@ -328,6 +331,7 @@ inline constexpr UiStrings kEnUsStrings = {
     L"Full-code practice (no shortcuts, completion or wildcards)",
     L"Dynamic phrase frequency (single chars fixed)",
     L"Toggle CN/EN mode with Shift key",
+    L"Toggle Chinese / English with Caps Lock",
     L"Unfinished input:",
     L"Commit raw code",
     L"Discard unfinished input",
@@ -393,6 +397,7 @@ inline constexpr UiStrings kEnUsStrings = {
     L"Quick reference for mode switching, selection, and dictionary hotkeys",
     L"[Mode Switching]\n"
     L"• Tap Shift / Ctrl + Space: Toggle Chinese / English mode\n"
+    L"• Tap Caps Lock: Optional Chinese / English toggle (off by default in Input)\n"
     L"• Shift + Space: Toggle Full-Width / Half-Width characters\n"
     L"• Ctrl + . (Period): Toggle Chinese / English punctuation\n\n"
     L"[Candidate Selection & Paging]\n"
@@ -404,7 +409,7 @@ inline constexpr UiStrings kEnUsStrings = {
     L"[Special Input]\n"
     L"• Leading z: Temporary English by default; enable pinyin lookup in Input (Space/digits select)\n"
     L"• 'z' in 2nd–4th code position: Wildcard code query with code hints\n"
-    L"• CapsLock while composing: Commit raw code and toggle CapsLock\n\n"
+    L"• By default, Caps Lock during Wubi composition commits raw code and passes through to Windows\n\n"
     L"[Dictionary & Ordering]\n"
     L"• Ctrl + = (Equals): Add copied clipboard phrase (2–16 chars) to user dict\n"
     L"• Ctrl + Digit 1–9: Pin / Unpin candidate at that index\n"

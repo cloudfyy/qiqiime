@@ -451,6 +451,7 @@ bool QiQiTextService::InitKeyEventSink() {
 }
 
 void QiQiTextService::UninitKeyEventSink() {
+    caps_lock_press_handled_ = false;
     if (!key_event_sink_registered_ && registered_preserved_keys_.empty()) {
         return;
     }
@@ -750,6 +751,7 @@ void QiQiTextService::HandleFocusChanged(bool has_focus, FocusNotificationSource
         }
     });
     if (!has_focus) {
+        caps_lock_press_handled_ = false;
         DisconnectPasswordContext();
         ResetCompositionAndUI(true, UnfinishedInputCleanupMode());
         if (current_outcome() != metrics::Outcome::Success) {

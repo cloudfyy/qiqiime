@@ -4,6 +4,7 @@
 #include "common/support.h"
 #include "common/RAII.h"
 #include "ime/comp/tests.h"
+#include "ime/svc/test.h"
 #include "ime/tsf/trace.h"
 #include "ime/ui/candobj.h"
 #include <windows.h>
@@ -328,6 +329,12 @@ int wmain(int argc, wchar_t* argv[]) {
         QIQI_TEST_CHECK(SUCCEEDED(co_hr));
         qiqi::test::RunTsfSearchIntegrationTests();
         std::cout << "[PASS] QiQi TSF search integration tests succeeded.\n";
+        return 0;
+    }
+    if (args.size() == 2 && std::wstring_view(gsl::at(args, 1)) == L"--caps-lock-switch-tests") {
+        const qiqi::test::TsfTestTrace trace("caps-lock-switch");
+        QIQI_TEST_CHECK(SUCCEEDED(co_hr));
+        qiqi::test::service_cases::TestCapsLockModeSwitch();
         return 0;
     }
     if (args.size() == 2 && std::wstring_view(gsl::at(args, 1)) == L"--composition-lifecycle-tests") {
