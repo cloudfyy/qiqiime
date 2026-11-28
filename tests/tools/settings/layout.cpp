@@ -73,6 +73,21 @@ void TestSettingsTextAlignment() {
             QIQI_TEST_CHECK(label.left == toggle_text_left);
             QIQI_TEST_CHECK(combo.right == control_right && combo.left < combo.right &&
                             combo.right - combo.left <= context->d2d.ScalePx(260));
+            if (language == UiLanguage::EnUs) {
+                const auto& theme = context->d2d;
+                QIQI_TEST_CHECK(theme.dwrite_factory && theme.fmt_body);
+                // Leave room for the closed combo's padding and drop-down arrow.
+                const float text_width = static_cast<float>(combo.right - combo.left) - theme.ScaleF(40);
+                for (const std::wstring_view choice : GetUiStrings(language).dlg_space_enter_modes) {
+                    ScopedDWriteTextLayout layout;
+                    QIQI_TEST_CHECK(SUCCEEDED(theme.dwrite_factory->CreateTextLayout(
+                        choice.data(), gsl::narrow_cast<UINT32>(choice.size()), theme.fmt_body.Get(),
+                        text_width, static_cast<float>(combo.bottom - combo.top), layout.Put())));
+                    DWRITE_TEXT_METRICS metrics{};
+                    QIQI_TEST_CHECK(SUCCEEDED(layout->GetMetrics(&metrics)));
+                    QIQI_TEST_CHECK(metrics.lineCount == 1 && metrics.width <= text_width);
+                }
+            }
             const bool inline_pair = label.top == combo.top;
             if (inline_pair) {
                 QIQI_TEST_CHECK(label.right < combo.left);

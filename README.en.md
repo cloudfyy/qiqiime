@@ -196,9 +196,9 @@ including user and pinned phrases, without changing the dictionary. Unique
 four-code auto-commit uses the filtered exact matches. Temporary English,
 punctuation keys, and dictionary editing are unchanged.
 
-In **Settings → Input → Space/Enter in Wubi**, choose **Space selects, Enter
-outputs code** (default), **Space selects, Enter clears code**, or **Enter selects,
-Space clears code**. Clearing is equivalent to `Esc`. If there is no candidate,
+In **Settings → Input → Space/Enter in Wubi**, choose **Space: Select / Enter: Code**
+(default), **Space: Select / Enter: Clear**, or **Enter: Select / Space: Clear**.
+**Code** commits the raw input, and **Clear** is equivalent to `Esc`. If there is no candidate,
 the selection key follows the existing auto-clear setting: clear the composition
 when enabled, or commit the raw code otherwise. The option applies only to
 unmodified keys during Wubi composition.

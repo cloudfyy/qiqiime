@@ -336,7 +336,7 @@ inline constexpr UiStrings kEnUsStrings = {
     L"Commit raw code",
     L"Discard unfinished input",
     L"Space/Enter in Wubi:",
-    {L"Space selects, Enter outputs code", L"Space selects, Enter clears code", L"Enter selects, Space clears code"},
+    {L"Space: Select / Enter: Code", L"Space: Select / Enter: Clear", L"Enter: Select / Space: Clear"},
     L"Turn candidate pages with Up/Down keys",
     L"Show status bar",
     L"Beep on empty 4-letter code",
