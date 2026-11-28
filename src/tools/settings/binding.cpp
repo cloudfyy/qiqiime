@@ -41,7 +41,8 @@ void EnableDraftEditing(HWND hwnd, bool enabled) noexcept {
     for (const auto& radio : kSettingsDictRadios) enable(radio.control_id);
     for (const auto& checkbox : kSettingsCheckboxes) enable(checkbox.control_id);
     for (const int id : {kIdComboPageSize, kIdComboCandidateLayout, kIdComboUiLang, kIdComboUnderlineStyle,
-                         kIdComboEnglishSwitch, kIdComboSpaceEnter, kIdComboUiTheme, kIdComboUiTextScale,
+                         kIdComboEnglishSwitch, kIdComboSpaceEnter, kIdComboOutputConversion, kIdComboUiTheme,
+                         kIdComboUiTextScale,
                          kIdComboImeSkin, kIdChkEasyReading, kIdBtnBrowsePrimaryDict, kIdBtnCandidateFont,
                          kIdBtnRestoreDefaults, kIdBtnImportConfig}) {
         enable(id);
@@ -300,6 +301,7 @@ HRESULT ApplySettingsControls(HWND hwnd, DialogContext& ctx, const QiQiConfig& c
              ComboSelection{kIdComboUnderlineStyle, gsl::narrow_cast<WPARAM>(underline)},
              ComboSelection{kIdComboEnglishSwitch, config.commit_on_english_switch ? 0u : 1u},
              ComboSelection{kIdComboSpaceEnter, std::to_underlying(config.space_enter_mode)},
+             ComboSelection{kIdComboOutputConversion, std::to_underlying(config.output_conversion)},
              ComboSelection{kIdComboUiTheme, gsl::narrow_cast<WPARAM>(std::to_underlying(display.theme))},
              ComboSelection{kIdComboUiTextScale, gsl::narrow_cast<WPARAM>(std::to_underlying(display.text_scale))}}) {
         if (const HRESULT result = SelectSettingsComboItem(hwnd, id, index); FAILED(result)) return result;
@@ -475,6 +477,13 @@ HRESULT settings_detail::ReadSettingsDraft(HWND hwnd, QiQiConfig& config) noexce
         QIQI_LOG_WARN("ReadSettingsFromWindowControls: Space/Enter selection unavailable (result={})",
             space_enter_sel);
     }
+    const HWND conversion = ::GetDlgItem(hwnd, kIdComboOutputConversion);
+    const LRESULT mode = conversion ? ::SendMessageW(conversion, CB_GETCURSEL, 0, 0) : CB_ERR;
+    if (mode < 0 || mode > std::to_underlying(OutputConversion::TraditionalToSimplified)) {
+        QIQI_LOG_WARN("Settings output conversion selection unavailable (result={})", mode);
+        return E_FAIL;
+    }
+    config.output_conversion = OutputConversion{gsl::narrow_cast<uint8_t>(mode)};
     const LRESULT theme = ::SendDlgItemMessageW(hwnd, kIdComboUiTheme, CB_GETCURSEL, 0, 0);
     const LRESULT scale = ::SendDlgItemMessageW(hwnd, kIdComboUiTextScale, CB_GETCURSEL, 0, 0);
     if (theme >= 0 && theme <= std::to_underlying(UiTheme::HighContrast)) {

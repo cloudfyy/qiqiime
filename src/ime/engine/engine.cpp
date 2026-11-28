@@ -4,6 +4,7 @@
 #include "ime/engine/engine.h"
 #include "ime/engine/builtindict.h"
 #include "ime/engine/dictdetail.h"
+#include "ime/engine/conversion.h"
 #include "ime/engine/fullcode.h"
 #include "common/logger.h"
 
@@ -96,6 +97,7 @@ void WubiEngine::ClearCompositionData() noexcept {
     raw_code_.clear();
     all_candidates_.clear();
     all_display_candidates_.clear();
+    all_original_candidates_.clear();
     current_page_ = 0;
     selected_in_page_ = 0;
 }
@@ -112,6 +114,15 @@ std::vector<std::wstring> WubiEngine::CurrentPageCandidates() const {
     const std::span<const std::wstring> page_span(all_candidates_);
     const auto sub = page_span.subspan(start, end - start);
     return std::vector<std::wstring>(sub.begin(), sub.end());
+}
+
+std::optional<size_t> WubiEngine::PageCandidateOffset(size_t index_in_page) const noexcept {
+    const auto [start, end] = ComputePageRange(all_candidates_.size(), page_size_, current_page_);
+    return index_in_page < end - start ? std::optional{start + index_in_page} : std::nullopt;
+}
+
+const std::wstring& WubiEngine::OriginalCandidateAt(size_t offset) const noexcept {
+    return gsl::at(all_original_candidates_.empty() ? all_candidates_ : all_original_candidates_, offset);
 }
 
 const std::wstring* WubiEngine::CurrentSelectedCandidate() const noexcept {
@@ -197,14 +208,51 @@ void WubiEngine::RefreshCandidates() {
     current_page_ = 0;
     selected_in_page_ = 0;
     all_display_candidates_.clear();
+    all_original_candidates_.clear();
 
     const bool has_wildcard = (raw_code_.find(L'z') != std::wstring::npos) ||
                               (raw_code_.find(L'Z') != std::wstring::npos);
     const bool want_display_hints = has_wildcard || (show_code_hint_ && raw_code_.size() < kMaxCodeLength);
     all_candidates_ = LookupCandidates(raw_code_, want_display_hints ? &all_display_candidates_ : nullptr);
+    ConvertCandidates(all_candidates_, want_display_hints ? &all_display_candidates_ : nullptr,
+        &all_original_candidates_);
     if (!want_display_hints) {
         all_display_candidates_ = all_candidates_;
     }
+}
+
+std::wstring WubiEngine::ConvertOutput(std::wstring_view text) const {
+    return output_conversion_ == OutputConversion::Off ? std::wstring(text)
+        : conversion_index_->Convert(text, output_conversion_);
+}
+
+void WubiEngine::ConvertCandidates(
+    std::vector<std::wstring>& candidates, std::vector<std::wstring>* labels,
+    std::vector<std::wstring>* originals) const {
+    if (output_conversion_ == OutputConversion::Off) return;
+    if (originals) originals->reserve(candidates.size());
+    size_t kept = 0;
+    for (size_t read = 0; read < candidates.size(); ++read) {
+        auto& original = gsl::at(candidates, read);
+        auto converted = ConvertOutput(original);
+        if (std::ranges::contains(std::span<const std::wstring>(candidates).first(kept), converted)) continue;
+        if (labels) {
+            auto label = std::move(gsl::at(*labels, read));
+            label.replace(0, original.size(), converted);
+            gsl::at(*labels, kept) = std::move(label);
+        }
+        if (originals) originals->push_back(std::move(original));
+        gsl::at(candidates, kept) = std::move(converted);
+        ++kept;
+    }
+    candidates.resize(kept);
+    if (labels) labels->resize(kept);
+}
+
+std::vector<std::wstring> WubiEngine::LookupOutputCandidates(std::wstring_view code) const {
+    auto candidates = LookupCandidates(code);
+    ConvertCandidates(candidates, nullptr, nullptr);
+    return candidates;
 }
 
 HRESULT WubiEngine::SetCandidateFilters(bool single_character, bool full_code_practice,
@@ -216,36 +264,60 @@ HRESULT WubiEngine::SetCandidateFilters(bool single_character, bool full_code_pr
             if (FAILED(opened)) return opened;
             full_code_index_ = std::move(index);
         }
-        update = RefreshCandidateFilters(single_character, full_code_practice);
+        update = RefreshCandidateSettings(single_character, full_code_practice, output_conversion_);
         return S_OK;
     } catch (const std::bad_alloc&) {
         return E_OUTOFMEMORY;
     }
 }
 
-KeyProcessResult WubiEngine::RefreshCandidateFilters(bool single_character, bool full_code_practice) {
-    if (single_character == single_character_mode_ && full_code_practice == full_code_practice_) return {};
+HRESULT WubiEngine::SetOutputConversion(
+    OutputConversion mode, KeyProcessResult& update, const std::filesystem::path& index_path) {
+    if (mode > OutputConversion::TraditionalToSimplified) return E_INVALIDARG;
+    try {
+        if (mode != OutputConversion::Off && (!conversion_index_ || !index_path.empty())) {
+            auto index = std::make_shared<ConversionIndex>();
+            const HRESULT opened = index_path.empty() ? index->OpenBundled() : index->Open(index_path);
+            if (FAILED(opened)) return opened;
+            conversion_index_ = std::move(index);
+        }
+        update = RefreshCandidateSettings(single_character_mode_, full_code_practice_, mode);
+        return S_OK;
+    } catch (const std::bad_alloc&) {
+        return E_OUTOFMEMORY;
+    }
+}
+
+KeyProcessResult WubiEngine::RefreshCandidateSettings(
+    bool single_character, bool full_code_practice, OutputConversion mode) {
+    if (single_character == single_character_mode_ && full_code_practice == full_code_practice_ &&
+        mode == output_conversion_) return {};
     if (!IsWubiComposingState(state_)) {
         single_character_mode_ = single_character;
         full_code_practice_ = full_code_practice;
+        output_conversion_ = mode;
         return {};
     }
 
     auto old_candidates = std::move(all_candidates_);
     auto old_display = std::move(all_display_candidates_);
+    auto old_originals = std::move(all_original_candidates_);
     const size_t old_page = current_page_;
     const size_t old_selection = selected_in_page_;
     const bool old_single_character = std::exchange(single_character_mode_, single_character);
     const bool old_full_code = std::exchange(full_code_practice_, full_code_practice);
+    const auto old_conversion = std::exchange(output_conversion_, mode);
     bool refreshed = false;
     const auto rollback = gsl::finally([&]() noexcept {
         if (refreshed) return;
         all_candidates_ = std::move(old_candidates);
         all_display_candidates_ = std::move(old_display);
+        all_original_candidates_ = std::move(old_originals);
         current_page_ = old_page;
         selected_in_page_ = old_selection;
         single_character_mode_ = old_single_character;
         full_code_practice_ = old_full_code;
+        output_conversion_ = old_conversion;
     });
     RefreshCandidates();
     auto result = MakeCurrentStateResult(KeyActionType::UpdateState);
@@ -331,7 +403,7 @@ WubiEngine::TransitionOutcome WubiEngine::HandleAppend4thCode(const KeyInputCont
     if (raw_code_.find(L'z') == std::wstring::npos) {
         const auto exact = LookupInputExact(PackWubiCode(raw_code_));
         if (auto_commit_4code_ && exact.size() == 1) {
-            return CommitAndClear(exact.front());
+            return CommitAndClear(ConvertOutput(exact.front()));
         }
         if (beep_on_dup_4code_ && exact.size() > 1) {
             QIQI_LOG_DEBUG("4-code lookup has {} exact matches: triggering dup-code chime", exact.size());
@@ -387,15 +459,21 @@ WubiEngine::TransitionOutcome WubiEngine::HandleCommitSelected(const KeyInputCon
         ClearCompositionData();
         return {EngineState::Idle, MakeCurrentStateResult(KeyActionType::Cancel)};
     }
-    std::wstring selected = CurrentSelectedCandidateOrRaw();
+    return CommitCandidateOrRaw(PageCandidateOffset(selected_in_page_), ctx.allow_learn, ctx.defer_phrase_promotion);
+}
+
+WubiEngine::TransitionOutcome WubiEngine::CommitCandidateOrRaw(
+    std::optional<size_t> offset, bool allow_learn, bool defer_phrase_promotion) {
+    std::wstring selected = offset ? gsl::at(all_candidates_, *offset) : raw_code_;
     std::wstring promoted_code;
     std::wstring promoted_word;
-    if (ctx.allow_learn && IsWubiComposingState(state_)) {
-        if (ctx.defer_phrase_promotion) {
+    if (allow_learn && IsWubiComposingState(state_)) {
+        const auto& original = offset ? OriginalCandidateAt(*offset) : raw_code_;
+        if (defer_phrase_promotion) {
             promoted_code = raw_code_;
-            promoted_word = selected;
+            promoted_word = original;
         } else {
-            PromotePhraseForCode(raw_code_, selected);
+            PromotePhraseForCode(raw_code_, original);
         }
     }
     return CommitAndClear(std::move(selected), std::move(promoted_code), std::move(promoted_word));
@@ -448,20 +526,8 @@ WubiEngine::TransitionOutcome WubiEngine::ResolveCandidateCommit(
     if (!IsComposing()) {
         return {state_, {}};
     }
-    const auto page = CurrentPageCandidates();
-    if (index_in_page < page.size()) {
-        std::wstring selected = gsl::at(page, index_in_page);
-        std::wstring promoted_code;
-        std::wstring promoted_word;
-        if (allow_learn && IsWubiComposingState(state_)) {
-            if (defer_phrase_promotion) {
-                promoted_code = raw_code_;
-                promoted_word = selected;
-            } else {
-                PromotePhraseForCode(raw_code_, selected);
-            }
-        }
-        return CommitAndClear(std::move(selected), std::move(promoted_code), std::move(promoted_word));
+    if (const auto offset = PageCandidateOffset(index_in_page)) {
+        return CommitCandidateOrRaw(offset, allow_learn, defer_phrase_promotion);
     }
     return {state_, MakeCurrentStateResult(KeyActionType::UpdateState)};
 }
@@ -572,10 +638,8 @@ WubiEngine::TransitionOutcome WubiEngine::HandlePinDigitCandidate(const KeyInput
         return {state_, MakeCurrentStateResult(KeyActionType::UpdateState)};
     }
     const auto idx_opt = ResolveDigitKeyIndex(ctx.vk);
-    const auto page = CurrentPageCandidates();
-    if (idx_opt.has_value() && *idx_opt < page.size()) {
-        const std::wstring target = gsl::at(page, *idx_opt);
-        if (PinUserEntry(raw_code_, target)) {
+    if (const auto offset = idx_opt ? PageCandidateOffset(*idx_opt) : std::nullopt) {
+        if (PinUserEntry(raw_code_, OriginalCandidateAt(*offset))) {
             RefreshCandidates();
         }
     }
@@ -586,18 +650,9 @@ WubiEngine::TransitionOutcome WubiEngine::HandleDeleteOrBlockCandidate(const Key
     if (!ctx.allow_learn || !IsWubiComposingState(state_) || raw_code_.find(L'z') != std::wstring::npos) {
         return {state_, MakeCurrentStateResult(KeyActionType::UpdateState)};
     }
-    const auto page = CurrentPageCandidates();
-    std::optional<size_t> target_idx;
-    if (ctx.vk == VK_DELETE) {
-        if (!page.empty()) {
-            target_idx = std::min(selected_in_page_, page.size() - 1);
-        }
-    } else {
-        target_idx = ResolveDigitKeyIndex(ctx.vk);
-    }
-    if (target_idx.has_value() && *target_idx < page.size()) {
-        const std::wstring target = gsl::at(page, *target_idx);
-        if (DeleteOrBlockUserOrSystemEntry(raw_code_, target)) {
+    const auto target_idx = ctx.vk == VK_DELETE ? std::optional{selected_in_page_} : ResolveDigitKeyIndex(ctx.vk);
+    if (const auto offset = target_idx ? PageCandidateOffset(*target_idx) : std::nullopt) {
+        if (DeleteOrBlockUserOrSystemEntry(raw_code_, OriginalCandidateAt(*offset))) {
             RefreshCandidates();
         }
     }

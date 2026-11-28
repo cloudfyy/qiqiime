@@ -107,7 +107,9 @@ try {
                 $expectedNonLicenseFileCount = if ($arch -eq "x64") { 31 } else { 24 }
                 $expectedFileCount = $expectedNonLicenseFileCount + $expectedLicenses.Count
                 Assert-True ($files.Count -eq $expectedFileCount) "Unexpected payload count in ${path}: expected $expectedFileCount, found $($files.Count)."
-                $indexComponents = @{ "full.idx" = "CmpFullCodeIndex"; "pinyin.idx" = "CmpPinyinIndex" }
+                $indexComponents = @{
+                    "full.idx" = "CmpFullCodeIndex"; "pinyin.idx" = "CmpPinyinIndex"; "conv.idx" = "CmpConversionIndex"
+                }
                 foreach ($name in $indexComponents.Keys) {
                     $indexFile = @($files | Where-Object { $_.FileName.Split('|')[-1] -eq $name })
                     $indexComponent = @($components | Where-Object { $_.Component -eq $indexComponents[$name] })

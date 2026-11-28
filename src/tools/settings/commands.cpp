@@ -11,6 +11,7 @@
 #include "common/i18n.h"
 #include "common/logger.h"
 #include "common/theme.h"
+#include "ime/engine/conversion.h"
 #include "ime/engine/dict.h"
 #include "ime/engine/fullcode.h"
 #include "ime/engine/pinyin.h"
@@ -366,6 +367,13 @@ void HandleSettingsCommand(HWND hwnd, WPARAM wparam, DialogContext& ctx) {
                     PinyinIndex index;
                     if (!log::CheckHResult(index.OpenBundled(), "Settings::PinyinIndex")) {
                         ShowSettingsMessage(hwnd, edited.ui_language, SettingsMessageKind::PinyinUnavailable);
+                        return;
+                    }
+                }
+                if (edited.output_conversion != OutputConversion::Off) {
+                    ConversionIndex index;
+                    if (!log::CheckHResult(index.OpenBundled(), "Settings::ConversionIndex")) {
+                        ShowSettingsMessage(hwnd, edited.ui_language, SettingsMessageKind::ConversionUnavailable);
                         return;
                     }
                 }

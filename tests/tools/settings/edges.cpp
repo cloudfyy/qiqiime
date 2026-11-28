@@ -75,6 +75,15 @@ void TestSettingsBindingBoundaries() {
         ReadSettingsFromWindowControls(hwnd.Get(), read_layout);
         QIQI_TEST_CHECK(read_layout.candidate_layout == layout);
     }
+    QIQI_TEST_CHECK(::SendDlgItemMessageW(hwnd.Get(), kIdComboOutputConversion, CB_GETCOUNT, 0, 0) == 3);
+    for (const auto mode : {OutputConversion::Off, OutputConversion::SimplifiedToTraditional,
+                            OutputConversion::TraditionalToSimplified}) {
+        cfg.output_conversion = mode;
+        WriteSettingsToWindowControls(hwnd.Get(), cfg);
+        QiQiConfig read_mode;
+        ReadSettingsFromWindowControls(hwnd.Get(), read_mode);
+        QIQI_TEST_CHECK(read_mode.output_conversion == mode);
+    }
     WPARAM language_index = 0;
     for (const UiLanguage language : {UiLanguage::Auto, UiLanguage::ZhCn, UiLanguage::EnUs}) {
         cfg.ui_language = language;
@@ -358,7 +367,8 @@ void TestSettingsDirtyTitle() {
                 check_title(language, false);
             }
             for (const int combo : {kIdComboPageSize, kIdComboCandidateLayout,
-                                   kIdComboUnderlineStyle, kIdComboEnglishSwitch, kIdComboSpaceEnter}) {
+                                   kIdComboUnderlineStyle, kIdComboEnglishSwitch, kIdComboSpaceEnter,
+                                   kIdComboOutputConversion}) {
                 const auto initial = ::SendDlgItemMessageW(window.Get(), combo, CB_GETCURSEL, 0, 0);
                 select_combo(combo, initial == 0 ? 1u : 0u);
                 check_title(language, true);

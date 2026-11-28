@@ -517,7 +517,7 @@ bool IsPendingProgramFile(std::wstring_view path, std::wstring_view installation
             L"x64\\QiQiIMELogMonitor.exe", L"x86\\QiQiIMELogMonitor.exe",
             L"x64\\QiQiIMEDictManager.exe", L"x86\\QiQiIMEDictManager.exe",
             L"data\\wubi86_jidian.txt", L"data\\wubi86_jidian_extra.txt", L"data\\wubi86_haifeng.txt",
-            L"data\\full.idx", L"data\\pinyin.idx",
+            L"data\\full.idx", L"data\\pinyin.idx", L"data\\conv.idx",
             L"data\\wubi86_jidian.qdict", L"data\\wubi86_jidian_extra.qdict", L"data\\wubi86_haifeng.qdict"}) {
         if (::CompareStringOrdinal(relative.data(), gsl::narrow<int>(relative.size()), expected, -1, TRUE) == CSTR_EQUAL) {
             return true;

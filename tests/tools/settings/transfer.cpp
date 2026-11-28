@@ -127,6 +127,7 @@ void TestSettingsZipBackupFlow() {
     archived.phrase_char_selection = true;
     archived.enable_z_pinyin_lookup = true;
     archived.caps_lock_toggle_mode = true;
+    archived.output_conversion = OutputConversion::TraditionalToSimplified;
     archived.commit_on_english_switch = false;
     QIQI_TEST_CHECK(WriteFileAtomically(
         custom, codec::AsByteSpan(std::string_view("abcd 自定义主词条\n"))));
@@ -237,12 +238,13 @@ void TestSettingsZipBackupFlow() {
         restored.page_size == 7 && restored.ui_theme == UiTheme::Dark &&
         !restored.enable_code_completion && restored.single_character_mode && restored.full_code_practice &&
         restored.phrase_char_selection && restored.enable_z_pinyin_lookup && restored.caps_lock_toggle_mode &&
-        !restored.commit_on_english_switch);
+        restored.output_conversion == archived.output_conversion && !restored.commit_on_english_switch);
     QiQiConfig visible;
     ReadSettingsFromWindowControls(window.Get(), visible);
     QIQI_TEST_CHECK(visible.page_size == restored.page_size &&
         visible.ui_theme == restored.ui_theme && visible.single_character_mode && visible.full_code_practice &&
-        visible.phrase_char_selection && visible.enable_z_pinyin_lookup && visible.caps_lock_toggle_mode);
+        visible.phrase_char_selection && visible.enable_z_pinyin_lookup && visible.caps_lock_toggle_mode &&
+        visible.output_conversion == restored.output_conversion);
     QIQI_TEST_CHECK(QueryRegistryConfigSequence() > before_restore);
 
     WubiEngine loaded;

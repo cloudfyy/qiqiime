@@ -156,6 +156,33 @@ Regenerate from the pinned archive without a runtime Python or network dependenc
 .\scripts\generate_pinyin_index.ps1 -UnihanZip <path-to-Unihan.zip>
 ```
 
+## OpenCC simplified/traditional conversion data
+
+- Source: Open Chinese Convert (`BYVoid/OpenCC`), [ver.1.4.2, commit `025f371d`](https://github.com/BYVoid/OpenCC/tree/025f371dc76b598d77384fbdab90c937471844d8/data/dictionary).
+  Inputs are `STCharacters.txt`, `STPhrases.txt`, `TSCharacters.txt`, and `TSPhrases.txt`.
+- Attribution: BYVoid and OpenCC contributors. The four source tables are
+  [Apache License 2.0](licenses/Apache-2.0.txt); see the pinned
+  [upstream license](https://github.com/BYVoid/OpenCC/blob/025f371dc76b598d77384fbdab90c937471844d8/LICENSE).
+  No OpenCC library, plugin, or other data file is linked or distributed.
+- Distributed derivative: [data/conv.idx](data/conv.idx). QiQi filters comments,
+  keeps the first listed conversion for each key, gives phrase rows precedence,
+  and sorts each direction by ordinal UTF-16. At runtime the longest matching
+  key wins; unmatched characters are unchanged. This is not a reproduction of
+  OpenCC's complete `s2t`/`t2s` profiles: it omits regional and generated tables
+  and the compatibility-ideograph normalization pass.
+- The QCNV v1 index contains 53,250 simplified-to-traditional and 4,625
+  traditional-to-simplified mappings (1,110,020 bytes). SHA-256:
+  `26b1da4d40929a5e98543eb3a2f5a64dae9fef30c8fbe46c97285a14ae3d3e72`.
+
+Regenerate from the four source files in the pinned directory:
+
+```powershell
+.\scripts\generate_conversion_index.ps1 -OpenCCDictionaryDirectory <path-to-OpenCC-data-dictionary>
+```
+
+The generator pins the input hashes. Normal builds ship one read-only index
+for both architectures; neither build nor runtime downloads conversion data.
+
 ## Microsoft Guidelines Support Library (GSL)
 
 - Upstream: [microsoft/GSL](https://github.com/microsoft/GSL).

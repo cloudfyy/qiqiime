@@ -45,7 +45,7 @@ try {
     Remove-Item -LiteralPath $dataFile
     Assert-MissingRuntime $dlls $false "Missing required data file*"
     [System.IO.File]::WriteAllText($dataFile, "")
-    foreach ($name in "full.idx", "pinyin.idx") {
+    foreach ($name in "full.idx", "pinyin.idx", "conv.idx") {
         $sharedIndex = Join-Path $dataDir $name
         $misplacedIndex = Join-Path $x86Dir $name
         Move-Item -LiteralPath $sharedIndex -Destination $misplacedIndex

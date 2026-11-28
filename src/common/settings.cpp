@@ -60,6 +60,8 @@ const wchar_t* GetToastText(
             return str.dlg_full_code_unavailable;
         case SettingsToastKind::PinyinUnavailable:
             return str.dlg_pinyin_unavailable;
+        case SettingsToastKind::ConversionUnavailable:
+            return str.dlg_conversion_unavailable;
         default:
             QIQI_LOG_ERROR("Unknown Settings toast kind");
             return nullptr;

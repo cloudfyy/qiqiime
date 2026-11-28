@@ -183,6 +183,9 @@
       <Component Id="CmpPinyinIndex" Directory="DirData" Guid="$(var.ComponentGuidPrefix)0109">
         <File Id="FilePinyinIndex" Source="$(var.StageDir)\data\pinyin.idx" KeyPath="yes" />
       </Component>
+      <Component Id="CmpConversionIndex" Directory="DirData" Guid="$(var.ComponentGuidPrefix)0110">
+        <File Id="FileConversionIndex" Source="$(var.StageDir)\data\conv.idx" KeyPath="yes" />
+      </Component>
 
       <!-- Management scripts -->
       <Component Id="CmpScripts" Directory="DirScripts" Guid="$(var.ComponentGuidPrefix)0104">

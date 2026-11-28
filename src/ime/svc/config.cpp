@@ -959,6 +959,14 @@ HRESULT QiQiTextService::ApplyDynamicEngineSettings() noexcept {
     return pinyin;
 }
 
+HRESULT QiQiTextService::ApplyOutputConversion(KeyProcessResult& update) {
+    const HRESULT result = engine_.SetOutputConversion(config_.output_conversion, update);
+    if (!log::CheckHResult(result, "IME::SetOutputConversion")) {
+        ShowSettingsToast(config_.ui_language, SettingsToastKind::ConversionUnavailable);
+    }
+    return result;
+}
+
 bool QiQiTextService::PersistAndSyncQuickConfigChange(QiQiConfig updated_config, bool reload_dicts) {
     const trace::Context config_trace =
         trace::CreateContext(
@@ -1249,7 +1257,14 @@ QiQiTextService::ReloadResult QiQiTextService::ReloadConfigIfModified(uint64_t f
             if (config_.full_code_practice) {
                 ShowSettingsToast(config_.ui_language, SettingsToastKind::FullCodeUnavailable);
             }
-        } else if (update.action == KeyActionType::UpdateState) {
+        }
+        KeyProcessResult conversion_update;
+        if (const HRESULT converted = ApplyOutputConversion(conversion_update); FAILED(converted)) {
+            result.Fail(converted);
+        } else if (conversion_update.action == KeyActionType::UpdateState) {
+            update = std::move(conversion_update);
+        }
+        if (update.action == KeyActionType::UpdateState) {
             candidate_refresh_owner = this;
             const auto context = composition_lifecycle_.Context();
             if (context) ApplyEngineResult(context.Get(), update);

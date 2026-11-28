@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "common/support.h"
+#include "ime/engine/conversion.h"
 #include "ime/engine/engine.h"
 #include "ime/engine/pinyin.h"
 
@@ -262,6 +263,8 @@ void TestZPinyinLookup() {
     }, binary);
     QIQI_TEST_CHECK(engine.LoadDictionaryFromBinaryBuffer(std::move(binary)));
     QIQI_TEST_CHECK(engine.SetZPinyinLookup(true) == S_OK);
+    KeyProcessResult update;
+    QIQI_TEST_CHECK(engine.SetOutputConversion(OutputConversion::SimplifiedToTraditional, update) == S_OK);
     engine.SetPageSize(2);
     const auto type = [&](std::string_view keys) {
         for (const unsigned char key : keys) {
@@ -303,6 +306,60 @@ void TestZPinyinLookup() {
     QIQI_TEST_CHECK(engine.SetZPinyinLookup(false) == S_OK);
     type("Z");
     QIQI_TEST_CHECK(engine.IsTempEnglishMode());
+}
+
+void TestOutputConversion() {
+    constexpr auto s2t = OutputConversion::SimplifiedToTraditional;
+    constexpr auto t2s = OutputConversion::TraditionalToSimplified;
+    ConversionIndex index;
+    QIQI_TEST_CHECK(index.OpenBundled() == S_OK);
+    QIQI_TEST_CHECK(index.Convert(L"头发发展 A\U0001F600", s2t) == L"頭髮發展 A\U0001F600");
+    QIQI_TEST_CHECK(index.Convert(L"頭髮發展 A\U0001F600", t2s) == L"头发发展 A\U0001F600");
+
+    WubiEngine engine;
+    engine.AddEntry(L"xxyq", L"头发");
+    engine.AddEntry(L"xxyq", L"頭髮");
+    engine.AddEntry(L"xxyu", L"发展");
+    engine.SetPhraseCharSelection(true);
+    engine.SetDynamicPhraseFreq(true);
+    const auto type = [&](std::string_view keys) {
+        KeyProcessResult result;
+        for (const unsigned char key : keys) result = engine.ProcessKey(key);
+        return result;
+    };
+    const auto original = type("XXYQ");
+    QIQI_TEST_CHECK(original.action == KeyActionType::UpdateState &&
+                    original.all_candidates == (std::vector<std::wstring>{L"头发", L"頭髮"}));
+    KeyProcessResult update;
+    QIQI_TEST_CHECK(engine.SetOutputConversion(s2t, update) == S_OK);
+    QIQI_TEST_CHECK(update.action == KeyActionType::UpdateState && update.composition_text == L"xxyq" &&
+                    update.all_candidates == std::vector<std::wstring>{L"頭髮"});
+    QIQI_TEST_CHECK(engine.LookupExact(L"xxyq") == original.all_candidates);
+    const auto selected = engine.CommitCandidate(0, true, true);
+    QIQI_TEST_CHECK(selected.committed_text == L"頭髮" &&
+                    selected.promoted_code == L"xxyq" && selected.promoted_word == L"头发");
+    engine.ApplyDeferredPhrasePromotion(selected);
+    QIQI_TEST_CHECK(engine.PromotedPhrases().at(PackWubiCode(L"xxyq")) == std::vector<std::wstring>{L"头发"});
+
+    QIQI_TEST_CHECK(type("XXYQ").action == KeyActionType::UpdateState);
+    QIQI_TEST_CHECK(engine.ProcessKey(VK_OEM_6).committed_text == L"髮");
+    const auto unique = type("XXYU");
+    QIQI_TEST_CHECK(unique.action == KeyActionType::Commit && unique.committed_text == L"發展");
+    QIQI_TEST_CHECK(std::ranges::contains(type("XXY").all_display_candidates, L"頭髮(~q)"));
+    QIQI_TEST_CHECK(std::ranges::contains(type("Z").all_display_candidates, L"頭髮(xxyq)"));
+    QIQI_TEST_CHECK(engine.ProcessKey(VK_RETURN).committed_text == L"xxyz");
+
+    QIQI_TEST_CHECK(type("XXYQ").action == KeyActionType::UpdateState);
+    QIQI_TEST_CHECK(engine.ProcessKey('1', false, true).action == KeyActionType::UpdateState);
+    QIQI_TEST_CHECK(engine.PinnedEntries().at(PackWubiCode(L"xxyq")) == std::vector<std::wstring>{L"头发"});
+    QIQI_TEST_CHECK(engine.ProcessKey('1', false, true).action == KeyActionType::UpdateState);
+    QIQI_TEST_CHECK(engine.ProcessKey(VK_DELETE, false, true).action == KeyActionType::UpdateState);
+    QIQI_TEST_CHECK(engine.LookupExact(L"xxyq") == std::vector<std::wstring>{L"頭髮"});
+    QIQI_TEST_CHECK(engine.SetOutputConversion(t2s, update) == S_OK &&
+                    update.all_candidates == std::vector<std::wstring>{L"头发"});
+    QIQI_TEST_CHECK(engine.ProcessKey('1').committed_text == L"头发");
+    QIQI_TEST_CHECK(engine.SetOutputConversion(OutputConversion::Off, update) == S_OK);
+    QIQI_TEST_CHECK(engine.LookupOutputCandidates(L"xxyq") == std::vector<std::wstring>{L"頭髮"});
 }
 
 void TestWildcardAndBackspaceAndCancel() {

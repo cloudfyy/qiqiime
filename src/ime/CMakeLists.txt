@@ -4,6 +4,8 @@
 set(QIQI_ENGINE_SOURCES
     engine/backup.cpp
     engine/backup.h
+    engine/conversion.cpp
+    engine/conversion.h
     engine/dict.cpp
     engine/dict.h
     fsm/fsm.h
@@ -34,6 +36,7 @@ target_link_libraries(qiqi_engine PUBLIC qiqi_common)
 
 configure_file("${PROJECT_SOURCE_DIR}/data/full.idx" "${CMAKE_BINARY_DIR}/data/full.idx" COPYONLY)
 configure_file("${PROJECT_SOURCE_DIR}/data/pinyin.idx" "${CMAKE_BINARY_DIR}/data/pinyin.idx" COPYONLY)
+configure_file("${PROJECT_SOURCE_DIR}/data/conv.idx" "${CMAKE_BINARY_DIR}/data/conv.idx" COPYONLY)
 
 set(QIQIIME_SOURCES
     tsf/dllmain.cpp

@@ -7,6 +7,7 @@
 #include "common/version.h"
 #include "ime/tsf/mocks.h"
 #include "ime/svc/service.h"
+#include "ime/svc/flowfixture.h"
 #include <ctffunc.h>
 #include <oleauto.h>
 #include <algorithm>
@@ -656,6 +657,51 @@ void TestCandidateFilterConfigReload(bool practice) {
     QIQI_TEST_CHECK(composition->ended_ && context->range_->text_ == first.Get());
 }
 
+void TestOutputConversionReload() {
+    const TsfTestCaseTrace trace(__func__);
+    const service_cases::ServiceFlowTestFixture fixture;
+    QiQiConfig config;
+    config.primary_dict = PrimaryDict::BuiltinOnly;
+    config.auto_commit_4code = false;
+    QIQI_TEST_CHECK(SaveConfigToRegistry(config));
+
+    const auto service = MakeComObject<QiQiTextService>(g_dll_instance);
+    const auto manager = MakeComObject<MockTfThreadMgr>();
+    manager->show_own_ui_ = FALSE;
+    QIQI_TEST_CHECK(service->ActivateEx(manager.Get(), 1, TF_TMAE_UIELEMENTENABLEDONLY) == S_OK);
+    const auto deactivate = gsl::finally([&]() noexcept {
+        QIQI_TEST_CHECK_CLEANUP(service->Deactivate() == S_OK);
+    });
+    const auto context = MakeComObject<MockTfContext>();
+    BOOL eaten = FALSE;
+    for (const UINT key : {'K', 'H', 'L', 'G'}) {
+        QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), key, 0, &eaten) == S_OK && eaten);
+    }
+    const auto composition = context->last_composition_;
+    ComPtr<ITfCandidateListUIElement> candidates;
+    QIQI_TEST_CHECK(composition && !composition->ended_ &&
+                    manager->last_ui_element_.As(&candidates) == S_OK && candidates);
+    ScopedBstr before;
+    QIQI_TEST_CHECK(candidates->GetString(0, before.Put()) == S_OK && before &&
+                    std::wstring_view(before.Get()) == L"中国");
+
+    config.output_conversion = OutputConversion::SimplifiedToTraditional;
+    QIQI_TEST_CHECK(SaveConfigToRegistry(config));
+    QIQI_TEST_CHECK(service->OnChange(kGuidCompartmentConfigVersion) == S_OK);
+    QIQI_TEST_CHECK(context->last_composition_.Get() == composition.Get() && !composition->ended_ &&
+                    context->range_->text_ == L"khlg");
+    ScopedBstr first;
+    QIQI_TEST_CHECK(candidates->GetString(0, first.Put()) == S_OK && first &&
+                    std::wstring_view(first.Get()) == L"中國");
+    const ScopedBstr query(::SysAllocString(L"khlg"));
+    ComPtr<ITfCandidateList> search;
+    ComPtr<ITfCandidateString> result;
+    QIQI_TEST_CHECK(query && service->GetSearchCandidates(query.Get(), nullptr, &search) == S_OK && search);
+    QIQI_TEST_CHECK(search->GetCandidate(0, &result) == S_OK && ReadCandidateString(result.Get()) == L"中國");
+    QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), VK_SPACE, 0, &eaten) == S_OK && eaten);
+    QIQI_TEST_CHECK(composition->ended_ && context->range_->text_ == L"中國");
+}
+
 void TestZPinyinFromSettings() {
     const TsfTestCaseTrace trace(__func__);
     QIQI_TEST_CHECK(std::wstring_view(GetActiveConfigRegistrySubKey()) != kDefaultConfigRegSubKey);
@@ -706,6 +752,7 @@ void RunTsfSearchIntegrationTests() {
     TestIntegratedServiceRouting();
     TestCandidateFilterConfigReload(false);
     TestCandidateFilterConfigReload(true);
+    TestOutputConversionReload();
     TestZPinyinFromSettings();
     TestSearchIntegrationDiagnostics();
     QIQI_TEST_CHECK(g_com_object_count.load() == objects_before);

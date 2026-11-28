@@ -269,12 +269,12 @@ void LayoutSettingsControls(HWND hwnd, DialogContext& ctx) noexcept {
         }
         const bool label = id == kIdLblUiTheme || id == kIdLblUiTextScale || id == kIdLblUiLang ||
             id == kIdLblPageSize || id == kIdLblUnderlineStyle || id == kIdLblEnglishSwitch ||
-            id == kIdLblImeSkin || id == kIdLblSpaceEnter;
+            id == kIdLblImeSkin || id == kIdLblSpaceEnter || id == kIdLblOutputConversion;
         if (label && index + 1 < controls.size()) {
             const int combo = gsl::at(controls, ++index);
             const bool space_enter = id == kIdLblSpaceEnter;
             const bool skin_row = id == kIdLblImeSkin;
-            const int label_inset = id == kIdLblEnglishSwitch || space_enter ||
+            const int label_inset = id == kIdLblEnglishSwitch || space_enter || id == kIdLblOutputConversion ||
                 id == kIdLblUnderlineStyle || skin_row ||
                 id == kIdLblUiTextScale || id == kIdLblUiLang
                 ? toggle_label_inset : 0;

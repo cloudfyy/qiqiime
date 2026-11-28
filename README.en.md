@@ -196,6 +196,13 @@ including user and pinned phrases, without changing the dictionary. Unique
 four-code auto-commit uses the filtered exact matches. Temporary English,
 punctuation keys, and dictionary editing are unchanged.
 
+**Chinese output** under **Settings → Input** offers No conversion (the default),
+Simplified to Traditional, and Traditional to Simplified. Wubi candidates and
+commits use the same offline conversion from [OpenCC data](./THIRD_PARTY_NOTICES.md#opencc-simplifiedtraditional-conversion-data).
+Identical outputs appear once, but four-code auto-commit still counts original
+exact matches. Dictionaries, raw codes, pinyin lookup, and temporary English are
+unchanged.
+
 In **Settings → Input → Space/Enter in Wubi**, choose **Space: Select / Enter: Code**
 (default), **Space: Select / Enter: Clear**, or **Enter: Select / Space: Clear**.
 **Code** commits the raw input, and **Clear** is equivalent to `Esc`. If there is no candidate,

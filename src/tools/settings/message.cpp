@@ -58,6 +58,8 @@ MessageStrings GetMessageStrings(UiLanguage language, SettingsMessageKind kind) 
             return {str.dlg_title, str.dlg_full_code_unavailable};
         case SettingsMessageKind::PinyinUnavailable:
             return {str.dlg_title, str.dlg_pinyin_unavailable};
+        case SettingsMessageKind::ConversionUnavailable:
+            return {str.dlg_title, str.dlg_conversion_unavailable};
         case SettingsMessageKind::NotificationFailure:
             return {str.dlg_title, str.dlg_notify_failed};
         case SettingsMessageKind::DictManagerLaunchFailure:

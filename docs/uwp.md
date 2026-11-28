@@ -174,6 +174,12 @@ If the index cannot be read or verified, the host reports the error and keeps
 the previous leading-`z` behavior. The AppContainer fixture also verifies this
 fallback, read-only lookup, and denied writes for the pinyin index.
 
+Optional Wubi output conversion uses the same shared read-only layout for
+`data\conv.idx`. It is opened only when conversion is requested; the IME does
+not write the index, grant new access, or modify dictionary files. If loading
+fails, the previous effective output mode is retained and the error is reported.
+The AppContainer fixture exercises both readable and denied index access.
+
 ## Diagnostics and input restrictions
 
 Use the [log monitor or ETW tools](log.md), not the settings executable, to capture

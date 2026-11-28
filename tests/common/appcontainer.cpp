@@ -75,6 +75,25 @@ void ProbeReader(const std::filesystem::path& directory, const wchar_t* registry
         }
         QIQI_TEST_CHECK(pinyin.ProcessKey(VK_SPACE).committed_text == L"你");
     }
+    {
+        WubiEngine conversion;
+        conversion.AddEntry(L"xxy", L"头发");
+        KeyProcessResult update;
+        const auto denied = directory / L"denied-conv.idx";
+        const auto allowed = directory / L"conv.idx";
+        constexpr auto s2t = OutputConversion::SimplifiedToTraditional;
+        QIQI_TEST_CHECK(conversion.SetOutputConversion(OutputConversion::Off, update, denied) == S_OK);
+        QIQI_TEST_CHECK(conversion.SetOutputConversion(s2t, update, denied) == E_ACCESSDENIED);
+        QIQI_TEST_CHECK(conversion.LookupOutputCandidates(L"xxy") == std::vector<std::wstring>{L"头发"});
+        const ScopedFileHandle writer(::CreateFileW(allowed.c_str(), GENERIC_WRITE,
+            FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
+        QIQI_TEST_CHECK(!writer && ::GetLastError() == ERROR_ACCESS_DENIED);
+        QIQI_TEST_CHECK(conversion.SetOutputConversion(s2t, update, allowed) == S_OK);
+        QIQI_TEST_CHECK(conversion.LookupOutputCandidates(L"xxy") == std::vector<std::wstring>{L"頭髮"});
+        QIQI_TEST_CHECK(conversion.SetOutputConversion(
+            OutputConversion::TraditionalToSimplified, update, denied) == E_ACCESSDENIED);
+        QIQI_TEST_CHECK(conversion.LookupOutputCandidates(L"xxy") == std::vector<std::wstring>{L"頭髮"});
+    }
     SetConfigRegistrySubKeyOverrideForTest(registry_subkey);
     QIQI_TEST_CHECK(::SetEnvironmentVariableW(L"LOCALAPPDATA", L"C:\\QiQiContainerPrivate"));
     std::filesystem::path discovered;
@@ -260,21 +279,18 @@ void TestAppContainerTransport(const std::filesystem::path& peer) {
     QIQI_TEST_CHECK(host_engine.InitializeUserDictionarySharing() == S_OK);
     QIQI_TEST_CHECK(::SetFileSecurityW(user_dict.c_str(),
         DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION, raw));
-    const auto full_index = GetModuleFilePath(nullptr).parent_path().parent_path() / L"data" / L"full.idx";
-    const auto denied_index = fixture.directory / L"denied.idx";
+    const auto runtime_data = GetModuleFilePath(nullptr).parent_path().parent_path() / L"data";
     std::string index_bytes;
-    QIQI_TEST_CHECK(ReadFileToUtf8StringResult(full_index, index_bytes) == S_OK);
-    QIQI_TEST_CHECK(WriteFileAtomically(fixture.directory / L"full.idx", codec::AsByteSpan(index_bytes)));
-    QIQI_TEST_CHECK(WriteFileAtomically(denied_index, codec::AsByteSpan(index_bytes)));
-    QIQI_TEST_CHECK(::SetFileSecurityW(denied_index.c_str(),
-        DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION, raw));
-    const auto denied_pinyin = fixture.directory / L"denied-pinyin.idx";
-    const auto pinyin_index = full_index.parent_path() / L"pinyin.idx";
-    QIQI_TEST_CHECK(ReadFileToUtf8StringResult(pinyin_index, index_bytes) == S_OK);
-    QIQI_TEST_CHECK(WriteFileAtomically(fixture.directory / L"pinyin.idx", codec::AsByteSpan(index_bytes)));
-    QIQI_TEST_CHECK(WriteFileAtomically(denied_pinyin, codec::AsByteSpan(index_bytes)));
-    QIQI_TEST_CHECK(::SetFileSecurityW(denied_pinyin.c_str(),
-        DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION, raw));
+    for (const auto& names : {std::pair{L"full.idx", L"denied.idx"},
+                             std::pair{L"pinyin.idx", L"denied-pinyin.idx"},
+                             std::pair{L"conv.idx", L"denied-conv.idx"}}) {
+        const auto denied = fixture.directory / names.second;
+        QIQI_TEST_CHECK(ReadFileToUtf8StringResult(runtime_data / names.first, index_bytes) == S_OK);
+        QIQI_TEST_CHECK(WriteFileAtomically(fixture.directory / names.first, codec::AsByteSpan(index_bytes)));
+        QIQI_TEST_CHECK(WriteFileAtomically(denied, codec::AsByteSpan(index_bytes)));
+        QIQI_TEST_CHECK(::SetFileSecurityW(denied.c_str(),
+            DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION, raw));
+    }
     for (const auto* name : {L"MissingSnapshot", L"DeniedSnapshot", L"MissingJournal"}) {
         const auto source_path = fixture.directory / (std::wstring(name) + L".txt");
         const auto channel_directory = GetSyncChannelDirectoryForFile(source_path);

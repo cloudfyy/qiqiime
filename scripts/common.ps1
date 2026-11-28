@@ -13,7 +13,8 @@ $script:QiQiDataFileNames = @(
     "wubi86_jidian_extra.txt",
     "wubi86_haifeng.txt",
     "full.idx",
-    "pinyin.idx"
+    "pinyin.idx",
+    "conv.idx"
 )
 $script:QiQiToolExeNames = @(
     "QiQiIMESettings.exe",
@@ -262,7 +263,7 @@ function Test-QiQiRuntimeFiles(
         }
         $parentDir = if ($item.Directory.Parent) { $item.Directory.Parent.FullName } else { $item.DirectoryName }
         foreach ($reqFile in $script:QiQiDataFileNames) {
-            if ($reqFile -in "full.idx", "pinyin.idx") {
+            if ($reqFile -in "full.idx", "pinyin.idx", "conv.idx") {
                 if (-not (Test-Path -LiteralPath (Join-Path $parentDir "data\$reqFile") -PathType Leaf)) {
                     throw "Missing shared data file ($reqFile) for $($archInfo.Name) DLL in ..\data"
                 }

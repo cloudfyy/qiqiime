@@ -11,6 +11,7 @@
 #include "ime/engine/dict.h"
 #include "ime/engine/fullcode.h"
 #include "ime/engine/pinyin.h"
+#include "ime/engine/conversion.h"
 
 #include <gsl/gsl>
 #include <algorithm>
@@ -341,6 +342,15 @@ BackupRestoreResult CompleteBackup::RestoreFile(
         PinyinIndex index;
         if (const HRESULT opened = index.OpenBundled(); FAILED(opened)) {
             std::ignore = log::CheckHResult(opened, "Backup restore::PinyinIndex");
+            result.stage = BackupRestoreStage::Validate;
+            result.error = opened;
+            return result;
+        }
+    }
+    if (plan.config_changed && plan.config.output_conversion != OutputConversion::Off) {
+        ConversionIndex index;
+        if (const HRESULT opened = index.OpenBundled(); FAILED(opened)) {
+            std::ignore = log::CheckHResult(opened, "Backup restore::ConversionIndex");
             result.stage = BackupRestoreStage::Validate;
             result.error = opened;
             return result;

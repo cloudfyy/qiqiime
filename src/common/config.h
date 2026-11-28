@@ -54,6 +54,12 @@ enum class WubiSpaceEnterMode : uint8_t {
     EnterSelectSpaceClear = 2
 };
 
+enum class OutputConversion : uint8_t {
+    Off = 0,
+    SimplifiedToTraditional = 1,
+    TraditionalToSimplified = 2
+};
+
 enum class UiTheme { System, Light, Dark, HighContrast };
 enum class UiTextScale { Percent100, Percent125, Percent150, Percent200 };
 enum class CandidateFontWeight {
@@ -187,6 +193,7 @@ struct QiQiConfig {
     bool enable_key_sound = false;
     bool up_down_page_turn = false;
     WubiSpaceEnterMode space_enter_mode = WubiSpaceEnterMode::SpaceSelectEnterCode;
+    OutputConversion output_conversion = OutputConversion::Off;
     UiLanguage ui_language = UiLanguage::Auto;
     CompositionUnderlineStyle underline_style = CompositionUnderlineStyle::Dot;
     bool bold_underline = false;
@@ -300,7 +307,9 @@ inline constexpr auto kConfigFields = std::tuple{
     ConfigField{"full_code_practice", L"FullCodePractice", &QiQiConfig::full_code_practice, 0, 1, true},
     ConfigField{"phrase_char_selection", L"PhraseCharSelection", &QiQiConfig::phrase_char_selection, 0, 1, true},
     ConfigField{"enable_z_pinyin_lookup", L"EnableZPinyinLookup", &QiQiConfig::enable_z_pinyin_lookup, 0, 1, true},
-    ConfigField{"caps_lock_toggle_mode", L"CapsLockToggleMode", &QiQiConfig::caps_lock_toggle_mode, 0, 1, true}
+    ConfigField{"caps_lock_toggle_mode", L"CapsLockToggleMode", &QiQiConfig::caps_lock_toggle_mode, 0, 1, true},
+    ConfigField{"output_conversion", L"OutputConversion", &QiQiConfig::output_conversion, 0,
+        std::to_underlying(OutputConversion::TraditionalToSimplified), true}
 };
 
 template <typename Visitor>

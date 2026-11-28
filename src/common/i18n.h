@@ -76,6 +76,8 @@ struct UiStrings {
     const wchar_t* dlg_english_switch_clear;
     const wchar_t* dlg_lbl_space_enter;
     std::array<const wchar_t*, 3> dlg_space_enter_modes;
+    const wchar_t* dlg_lbl_output_conversion;
+    std::array<const wchar_t*, 3> dlg_output_conversion_modes;
     const wchar_t* dlg_chk_up_down_page_turn;
     const wchar_t* dlg_chk_status_bar;
     const wchar_t* dlg_chk_beep_empty4;
@@ -106,6 +108,7 @@ struct UiStrings {
     const wchar_t* dlg_draft_unavailable;
     const wchar_t* dlg_full_code_unavailable;
     const wchar_t* dlg_pinyin_unavailable;
+    const wchar_t* dlg_conversion_unavailable;
     const wchar_t* dlg_notify_failed;
     const wchar_t* dlg_dict_manager_launch_failed;
     const wchar_t* quick_settings_save_failed;
@@ -194,6 +197,8 @@ inline constexpr UiStrings kZhCnStrings = {
     L"清除未完成输入",
     L"五笔组合时的空格/回车:",
     {L"空格选字，回车输出编码", L"空格选字，回车清码", L"回车选字，空格清码"},
+    L"繁简输出:",
+    {L"不转换", L"简入繁出", L"繁入简出"},
     L"使用 ↑ / ↓ 方向键翻页",
     L"显示状态条",
     L"四码空码时发出提示音",
@@ -224,6 +229,7 @@ inline constexpr UiStrings kZhCnStrings = {
     L"设置未能完整刷新，本次未保存。已保留之前的编辑。请等待刷新，确认各项设置后再点“确定”。",
     L"无法读取或验证全码索引。全码练习未启用，请修复安装或检查读取权限。",
     L"无法读取或验证拼音索引。拼音反查未启用，请修复安装或检查读取权限。",
+    L"无法读取或验证繁简转换数据。输出模式未更改，请修复安装或检查读取权限。",
     L"设置已保存，切换窗口后全面生效。",
     L"无法启动词库管理器。请确认 QiQiIMEDictManager.exe 已安装，且当前用户有权运行该程序。具体错误码已记录到日志。",
     L"保存设置失败，请重试。",
@@ -244,6 +250,7 @@ inline constexpr UiStrings kZhCnStrings = {
     L"• rime-wubi86-jidian 上游许可副本 (KyleBing): MIT License\n"
     L"• 海峰五笔 86 词库及全码数据 (孙海峰): BSD 3-Clause License\n"
     L"• Unihan 单字拼音索引 (Unicode, Inc.): Unicode License V3\n"
+    L"• OpenCC 繁简转换词表 (BYVoid 及贡献者): Apache License 2.0\n"
     L"• Microsoft GSL (Microsoft): MIT License\n"
     L"• nlohmann/json (Niels Lohmann): MIT License\n"
     L"• miniz (Rich Geldreich / RAD Game Tools): MIT License\n"
@@ -337,6 +344,8 @@ inline constexpr UiStrings kEnUsStrings = {
     L"Discard unfinished input",
     L"Space/Enter in Wubi:",
     {L"Space: Select / Enter: Code", L"Space: Select / Enter: Clear", L"Enter: Select / Space: Clear"},
+    L"Chinese output:",
+    {L"No conversion", L"Simplified to Traditional", L"Traditional to Simplified"},
     L"Turn candidate pages with Up/Down keys",
     L"Show status bar",
     L"Beep on empty 4-letter code",
@@ -367,6 +376,7 @@ inline constexpr UiStrings kEnUsStrings = {
     L"Settings could not finish refreshing. Nothing was saved. Your previous edits are kept. Wait for the refresh, review the values, then click OK again.",
     L"The full-code index could not be read or verified. Full-code practice was not enabled. Repair the installation or check read permissions.",
     L"The pinyin index could not be read or verified. Pinyin lookup was not enabled. Repair the installation or check read permissions.",
+    L"The Chinese conversion data could not be read or verified. The output mode is unchanged. Repair the installation or check read permissions.",
     L"Settings were saved, but the running IME could not be notified. Reactivate the IME to load the new settings.",
     L"Cannot start Dictionary Manager. Check that QiQiIMEDictManager.exe is installed and the current user can run it. The error code was recorded in the log.",
     L"Could not save setting. The previous setting is unchanged.",
@@ -387,6 +397,7 @@ inline constexpr UiStrings kEnUsStrings = {
     L"• rime-wubi86-jidian upstream license copy (KyleBing): MIT License\n"
     L"• Haifeng Wubi 86 dictionary and full-code data (SUN Haifeng): BSD 3-Clause License\n"
     L"• Unihan single-character pinyin index (Unicode, Inc.): Unicode License V3\n"
+    L"• OpenCC Chinese conversion tables (BYVoid and contributors): Apache License 2.0\n"
     L"• Microsoft GSL (Microsoft): MIT License\n"
     L"• nlohmann/json (Niels Lohmann): MIT License\n"
     L"• miniz (Rich Geldreich / RAD Game Tools): MIT License\n"

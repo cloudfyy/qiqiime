@@ -258,6 +258,8 @@ void CreateSettingsControls(HWND hwnd, HINSTANCE instance, const DialogContext& 
     const RECT initial{0, 0, 100, 40};
     create_control(L"STATIC", str.dlg_lbl_space_enter, 0, initial, kIdLblSpaceEnter);
     create_control(L"COMBOBOX", L"", combo_style, initial, kIdComboSpaceEnter);
+    create_control(L"STATIC", str.dlg_lbl_output_conversion, 0, initial, kIdLblOutputConversion);
+    create_control(L"COMBOBOX", L"", combo_style, initial, kIdComboOutputConversion);
     create_control(L"BUTTON", str.dlg_btn_restore_backup, button_style, initial, kIdBtnImportConfig);
     create_control(L"BUTTON", str.dlg_btn_create_backup, button_style, initial, kIdBtnExportConfig);
     create_control(L"STATIC", L"", 0, initial, kIdLblUiTheme);

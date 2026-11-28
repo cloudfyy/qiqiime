@@ -18,6 +18,7 @@
 
 namespace qiqi {
 
+class ConversionIndex;
 class PinyinIndex;
 
 enum class KeyActionType {
@@ -241,8 +242,10 @@ public:
     HRESULT SetCandidateFilters(bool single_character, bool full_code_practice,
                                 KeyProcessResult& update, const std::filesystem::path& index_path = {});
     KeyProcessResult SetSingleCharacterMode(bool enabled) {
-        return RefreshCandidateFilters(enabled, full_code_practice_);
+        return RefreshCandidateSettings(enabled, full_code_practice_, output_conversion_);
     }
+    HRESULT SetOutputConversion(OutputConversion mode, KeyProcessResult& update,
+                                const std::filesystem::path& index_path = {});
     bool EnableZTempEnglish() const noexcept { return enable_z_temp_english_; }
     void SetEnableZTempEnglish(bool enabled) noexcept { enable_z_temp_english_ = enabled; }
     // Applied by the text service; non-input tools do not need to load the index.
@@ -306,6 +309,7 @@ public:
     // Input lookup with optional completion and wildcards (exact full codes only in practice).
     std::vector<std::wstring> LookupCandidates(
         std::wstring_view code, std::vector<std::wstring>* out_display_labels = nullptr) const;
+    std::vector<std::wstring> LookupOutputCandidates(std::wstring_view code) const;
     std::vector<std::wstring> LookupExact(std::wstring_view code) const;
     const auto& MappedDictionaries() const noexcept { return mapped_dicts_; }
     size_t MappedDictionaryCount() const noexcept { return mapped_dicts_.size(); }
@@ -335,6 +339,8 @@ private:
     KeyDispatch EvaluateKeyTransition(
         EngineState state, uint32_t vk, bool shift_down, bool ctrl_down, bool alt_down, bool caps_lock_on) const noexcept;
     void PromotePhraseForCode(std::wstring_view code, std::wstring_view word);
+    std::optional<size_t> PageCandidateOffset(size_t index_in_page) const noexcept;
+    const std::wstring& OriginalCandidateAt(size_t offset) const noexcept;
     const std::wstring* CurrentSelectedCandidate() const noexcept;
     std::wstring CurrentSelectedCandidateOrRaw() const;
     std::wstring_view SelectedPhraseCharacter(bool last) const noexcept;
@@ -347,8 +353,13 @@ private:
         std::wstring committed_text, std::wstring promoted_code = {}, std::wstring promoted_word = {});
     TransitionOutcome ResolveCandidateCommit(
         size_t index_in_page, bool allow_learn = true, bool defer_phrase_promotion = false);
+    TransitionOutcome CommitCandidateOrRaw(
+        std::optional<size_t> offset, bool allow_learn, bool defer_phrase_promotion);
     void RefreshCandidates();
-    KeyProcessResult RefreshCandidateFilters(bool single_character, bool full_code_practice);
+    KeyProcessResult RefreshCandidateSettings(bool single_character, bool full_code_practice, OutputConversion mode);
+    std::wstring ConvertOutput(std::wstring_view text) const;
+    void ConvertCandidates(std::vector<std::wstring>& candidates, std::vector<std::wstring>* labels,
+                           std::vector<std::wstring>* originals) const;
     std::vector<std::wstring> LookupInputExact(uint32_t packed_code) const;
     std::vector<std::wstring> LookupExact(uint32_t packed_code, const FullCodeIndex* full_codes) const;
     KeyProcessResult MakeCurrentStateResult(KeyActionType action, std::wstring committed = L"") const;
@@ -419,6 +430,7 @@ private:
     std::wstring raw_code_;
     std::vector<std::wstring> all_candidates_;
     std::vector<std::wstring> all_display_candidates_;
+    std::vector<std::wstring> all_original_candidates_;
     size_t page_size_ = kDefaultPageSize;
     size_t current_page_ = 0;
     size_t selected_in_page_ = 0;
@@ -431,6 +443,8 @@ private:
     bool single_character_mode_ = false;
     bool full_code_practice_ = false;
     std::shared_ptr<const FullCodeIndex> full_code_index_;
+    OutputConversion output_conversion_ = OutputConversion::Off;
+    std::shared_ptr<const ConversionIndex> conversion_index_;
     bool enable_z_temp_english_ = true;
     bool enable_z_pinyin_lookup_ = false;
     std::shared_ptr<const PinyinIndex> pinyin_index_;

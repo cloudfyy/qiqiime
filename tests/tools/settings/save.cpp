@@ -635,7 +635,7 @@ void TestSettingsFieldMergeMatrix() {
             ++cases;
         }
     });
-    QIQI_TEST_CHECK(cases == 2 * 34);
+    QIQI_TEST_CHECK(cases == 2 * 35);
     for (const bool dirty : {false, true}) {
         QiQiConfig baseline;
         baseline.candidate_font_family = L"Segoe UI";

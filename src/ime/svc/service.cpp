@@ -113,6 +113,8 @@ QiQiTextService::QiQiTextService(HINSTANCE instance)
     engine_.SetPhraseFreqPath(GetDefaultPhraseFreqPath());
     std::ignore = engine_.LoadPhraseFrequencies(engine_.PhraseFreqPath());
     std::ignore = ApplyDynamicEngineSettings();
+    KeyProcessResult conversion_update;
+    std::ignore = ApplyOutputConversion(conversion_update);
     candidate_ui_ = MakeComObject<CandidateUI>(instance);
     candidate_ui_->SetFontPreferences(GetCandidateFontPreferences(config_));
     candidate_ui_->SetSelectCallback([this](size_t index_in_page) {
@@ -931,7 +933,7 @@ STDMETHODIMP QiQiTextService::GetSearchCandidates(
     const std::wstring_view code(query, query_length);
     if (code.empty()) return finish(S_FALSE);
     try {
-        auto results = engine_.LookupCandidates(code);
+        auto results = engine_.LookupOutputCandidates(code);
         const size_t count = results.size();
         const HRESULT hr = CreateSearchCandidateList(
             std::move(results), candidates);

@@ -179,6 +179,7 @@ HRESULT PopulateSettingsComboItems(HWND hwnd, UiLanguage lang) noexcept {
              ComboItems{kIdComboUiLang, languages}, ComboItems{kIdComboPageSize, page_sizes},
              ComboItems{kIdComboCandidateLayout, candidate_layout}, ComboItems{kIdComboUnderlineStyle, underline},
              ComboItems{kIdComboEnglishSwitch, english_switch}, ComboItems{kIdComboSpaceEnter, str.dlg_space_enter_modes},
+             ComboItems{kIdComboOutputConversion, str.dlg_output_conversion_modes},
              ComboItems{kIdComboUiTheme, display.themes}, ComboItems{kIdComboUiTextScale, text_scales}}) {
         const HRESULT result = ReplaceComboBoxItems(::GetDlgItem(hwnd, combo.first), combo.second);
         if (FAILED(result)) {
@@ -205,6 +206,7 @@ void RenderSettingsLanguageLabels(HWND hwnd, UiLanguage lang) noexcept {
     ::SetDlgItemTextW(hwnd, kIdLblUnderlineStyle, str.dlg_lbl_underline_style);
     ::SetDlgItemTextW(hwnd, kIdLblEnglishSwitch, str.dlg_lbl_english_switch);
     ::SetDlgItemTextW(hwnd, kIdLblSpaceEnter, str.dlg_lbl_space_enter);
+    ::SetDlgItemTextW(hwnd, kIdLblOutputConversion, str.dlg_lbl_output_conversion);
     ::SetDlgItemTextW(hwnd, kIdBtnBrowsePrimaryDict, str.dlg_btn_browse_dict);
     ::SetDlgItemTextW(hwnd, kIdBtnDictManager, str.dlg_btn_dict_mgr);
     ::SetDlgItemTextW(hwnd, kIdBtnRestoreDefaults, str.dlg_btn_restore_defaults);

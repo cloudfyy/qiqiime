@@ -16,6 +16,7 @@ void TestSingleCharacterInput();
 void TestFullCodePracticeInput();
 void TestPhraseCharacterSelection();
 void TestZPinyinLookup();
+void TestOutputConversion();
 void TestWildcardAndBackspaceAndCancel();
 void TestNavigationSelectionAndReturnCommit();
 
@@ -33,6 +34,7 @@ void RunEngineInputTests() {
     TestFullCodePracticeInput();
     TestPhraseCharacterSelection();
     TestZPinyinLookup();
+    TestOutputConversion();
     TestWildcardAndBackspaceAndCancel();
     TestNavigationSelectionAndReturnCommit();
 }
