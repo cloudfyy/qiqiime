@@ -520,7 +520,8 @@ void RunSettingsToggleLabelTests() {
         QIQI_TEST_CHECK(::GetClientRect(button, &client));
         const RECT toggle = FluentToggleBounds(client, theme);
         const LONG y = (toggle.top + toggle.bottom) / 2;
-        const LPARAM label_point = MAKELPARAM(FluentToggleLabelInset(theme) + 1, y);
+        const auto label_x = gsl::narrow<short>(FluentToggleLabelInset(theme) + 1);
+        const LPARAM label_point = MAKELPARAM(label_x, y);
         const LPARAM switch_point = MAKELPARAM((toggle.left + toggle.right) / 2, y);
         const auto click = [&](LPARAM down, LPARAM up) {
             ::SendMessageW(button, WM_LBUTTONDOWN, MK_LBUTTON, down);
