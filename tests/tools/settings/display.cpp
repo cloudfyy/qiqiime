@@ -661,6 +661,7 @@ void RunSettingsDisplayTests() {
     TestSettingsCandidateFontDialogPlacement();
     TestSettingsDisplayPreview();
     TestSettingsAccessibleLayout();
+    RunSettingsToggleLabelTests();
 }
 
 } // namespace qiqi::test

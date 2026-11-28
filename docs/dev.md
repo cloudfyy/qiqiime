@@ -144,7 +144,7 @@ Repeat with the x86 preset and build directory. Use
 | --- | --- |
 | Common, synchronization, engine | `QiQiCommonTest`, `QiQiChangeSyncTest`, `QiQiEngineTest` |
 | TSF and composition | `QiQiTsfUiTest`, `QiQiCompositionLifecycleTest`, `QiQiCapsLockSwitchTest` |
-| Desktop tools | `QiQiSettingsTest`, `QiQiSettingsToggleLabelTest`, `QiQiDictManagerTest`, `QiQiLogMonitorTest`, `QiQiLogMonitorStartupTest`, `QiQiStandaloneToolsTest` |
+| Desktop tools | `QiQiSettingsTest`, `QiQiDictManagerTest`, `QiQiLogMonitorTest`, `QiQiLogMonitorStartupTest`, `QiQiStandaloneToolsTest` |
 | Skin catalog, selection, rendering and input preservation | `QiQiSkinTest` |
 | Metrics | `QiQiMetricsTest`, `QiQiMonitorMetricsTest` |
 | Installer sources and runtime layout | `QiQiInstallerShortcutsTest`, `QiQiRuntimeArchitectureTest` |
@@ -157,6 +157,10 @@ on a worker that retains the WAV data, with at most one newer effect pending.
 
 To check the floating status bar and tooltips without the full TSF menu suite,
 run `.\build\x64\Release\qiqi_tsf_ui_test.exe --status-bar-tests` (or use `x86`).
+
+`QiQiSettingsTest` runs serially and includes the switch-label checks. To run
+just those checks, use `.\build\x64\Release\qiqi_settings_test.exe --toggle-label-tests`
+(or use `x86`).
 
 `QiQiCapsLockSwitchTest` exercises TSF key callbacks with a private registry
 and `LOCALAPPDATA`. It sets thread keyboard state without injecting physical
