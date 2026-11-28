@@ -1231,12 +1231,21 @@ HRESULT LoadUserDictSyncDirectory(
     config::Snapshot snapshot;
     const HRESULT result =
         config::CopyCachedSnapshot(snapshot);
-    if (result != S_OK ||
-        snapshot.revision == 0) {
+    if (result != S_OK) {
         directory.clear();
-        return result != S_OK
-            ? result
-            : E_UNEXPECTED;
+        return result;
+    }
+    if (snapshot.revision == 0) {
+        directory.clear();
+        config::ConfigReadRoute route{};
+        const HRESULT routed = config::QueryProcessConfigReadRoute(route);
+        if (!log::CheckHResult(routed, "LoadUserDictSyncDirectory::ConfigReadRoute")) return routed;
+        if (route == config::ConfigReadRoute::BuiltinDefaults) {
+            QIQI_LOG_CAT_INFO(log::Keyword::Sync, "User dictionary synchronization skipped (config route=builtin)");
+            return S_FALSE;
+        }
+        std::ignore = log::CheckHResult(E_UNEXPECTED, "LoadUserDictSyncDirectory::SnapshotRevision");
+        return E_UNEXPECTED;
     }
     directory =
         snapshot.user_dict_sync_directory;

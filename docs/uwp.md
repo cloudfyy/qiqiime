@@ -140,6 +140,12 @@ published increments rather than opening the desktop source file or creating a
 separate local channel.
 An explicitly empty address means no shared user dictionary; inaccessible or
 invalid metadata/snapshots must be diagnosed, not silently treated as success.
+An empty token capability list is valid. For the built-in route, synchronization
+is explicitly skipped rather than reported as a failed snapshot. The
+`QiQiChangeSyncTest` checks cold-start candidate order with real AppContainer
+tokens: a restricted `registryRead` token reads and applies the pinned entry,
+while the capability-free control keeps the bundled order. It does not grant
+capabilities to installed packages or replace the real-host acceptance gate.
 
 [change_sync](../src/common/changesync.h) separates directory wakeups from the
 persistent journal, version checks, and file-lock coordination. Notifications

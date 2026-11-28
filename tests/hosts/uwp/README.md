@@ -30,6 +30,13 @@ event does not prove that `ITfFnSearchCandidateProvider` was queried directly.
 Windows 10/11 may no longer expose the legacy pane; in that case the app records
 the exact `HRESULT` and still supports ordinary IME input plus synthetic tests.
 
+This manifest intentionally requests no capabilities. On that route, bundled
+candidate order and a denied direct Broker probe are expected; it is not a
+test of personalized dictionary synchronization. `QiQiChangeSyncTest` provides
+the positive `registryRead` check using an isolated registry and a real
+restricted AppContainer token. For other capability profiles, see the
+[permission hosts](../grpperm/README.md).
+
 ## Package
 
 From PowerShell at the repository root:

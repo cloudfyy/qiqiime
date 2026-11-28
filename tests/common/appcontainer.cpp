@@ -2,8 +2,19 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "common/syncutil.h"
+#include "common/appcontainer.h"
+#include "common/configclient.h"
+#include "common/skin.h"
 
 namespace qiqi::test::changesync {
+namespace {
+
+constexpr std::wstring_view kPinnedCode = L"khlg";
+constexpr std::wstring_view kPinnedWord = L"容器置顶词";
+constexpr std::wstring_view kBuiltinWord = L"中国";
+
+} // namespace
+
 template <typename Action>
 void WithAppContainerProfile(const Action& action) {
     const auto name = L"QiQiSyncTest." + GuidText();
@@ -34,6 +45,45 @@ void RequireAppContainerToken() {
     DWORD size = 0;
     QIQI_TEST_CHECK(::GetTokenInformation(
         token.Get(), TokenIsAppContainer, &container, sizeof(container), &size) && container);
+}
+
+void ProbeDictionaryOrder(const std::filesystem::path& directory, const wchar_t* registry_subkey,
+                          bool registry_read) {
+    const TestStage stage(registry_read ? "dictionary-order.registry" : "dictionary-order.builtin");
+    RequireAppContainerToken();
+    config::ConfigReadRoute route{};
+    const HRESULT routed = config::QueryProcessConfigReadRoute(route);
+    if (routed != S_OK) std::cerr << "Dictionary order route query hr=" << std::hex << routed << "\n";
+    QIQI_TEST_CHECK(routed == S_OK && route == (registry_read ? config::ConfigReadRoute::AppContainerRegistry
+                                                           : config::ConfigReadRoute::BuiltinDefaults));
+    config::Snapshot snapshot;
+    {
+        SetConfigRegistrySubKeyOverrideForTest(registry_subkey);
+        const auto restore = gsl::finally([]() noexcept { SetConfigRegistrySubKeyOverrideForTest(nullptr); });
+        const HRESULT read = config::ReadSnapshot(snapshot);
+        if (read != S_OK) std::cerr << "Dictionary order configuration read hr=" << std::hex << read << "\n";
+        QIQI_TEST_CHECK(read == S_OK);
+    }
+    // The engine must use the route's cached address, not the test registry override.
+    const auto source = directory / L"user_dict.txt";
+    if (registry_read) {
+        QIQI_TEST_CHECK(snapshot.revision != 0 &&
+            snapshot.user_dict_sync_directory == GetSyncChannelDirectoryForFile(source));
+    } else {
+        QIQI_TEST_CHECK(snapshot.revision == 0 && snapshot.user_dict_sync_directory.empty());
+    }
+    WubiEngine engine;
+    engine.SetUserDictPath(source);
+    const HRESULT shared = engine.InitializeUserDictionarySharing();
+    if (FAILED(shared)) std::cerr << "Dictionary order synchronization hr=" << std::hex << shared << "\n";
+    QIQI_TEST_CHECK(shared == (registry_read ? S_OK : S_FALSE));
+    QIQI_TEST_CHECK(engine.UserDictSnapshotSyncCount() == (registry_read ? 1u : 0u));
+    engine.SetAutoCommit4Code(false);
+    KeyProcessResult candidates;
+    for (const uint32_t key : {'K', 'H', 'L', 'G'}) candidates = engine.ProcessKey(key);
+    QIQI_TEST_CHECK(candidates.action == KeyActionType::UpdateState && !candidates.page_candidates.empty() &&
+        candidates.page_candidates.front() == (registry_read ? kPinnedWord : kBuiltinWord));
+    QIQI_TEST_CHECK(engine.CommitCandidate(0).committed_text == (registry_read ? kPinnedWord : kBuiltinWord));
 }
 
 struct ChangeHandleTraits : FileHandleTraits {
@@ -276,6 +326,9 @@ void TestAppContainerTransport(const std::filesystem::path& peer) {
     host_engine.SetDynamicPhraseFreq(true);
     QIQI_TEST_CHECK(host_engine.AddUserEntry(L"qrst", L"短语一", user_dict));
     QIQI_TEST_CHECK(host_engine.AddUserEntry(L"qrst", L"短语二", user_dict));
+    QIQI_TEST_CHECK(host_engine.AddUserEntry(kPinnedCode, kPinnedWord, user_dict));
+    QIQI_TEST_CHECK(host_engine.PinUserEntry(kPinnedCode, kPinnedWord, user_dict));
+    QIQI_TEST_CHECK(SaveConfigToRegistry(QiQiConfig{}) && EnsureBuiltinImeSkinCatalog() == S_OK);
     QIQI_TEST_CHECK(host_engine.InitializeUserDictionarySharing() == S_OK);
     QIQI_TEST_CHECK(::SetFileSecurityW(user_dict.c_str(),
         DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION, raw));
@@ -313,6 +366,25 @@ void TestAppContainerTransport(const std::filesystem::path& peer) {
 
     const auto executable = fixture.directory / L"reader.exe";
     std::filesystem::copy_file(peer.empty() ? GetModuleFilePath(nullptr) : peer, executable);
+    DerivedCapabilitySids registry_read(L"registryRead");
+    QIQI_TEST_CHECK(registry_read.Build() == S_OK && !registry_read.Capabilities().empty());
+    std::vector<SID_AND_ATTRIBUTES> read_capabilities;
+    for (const PSID sid : registry_read.Capabilities()) {
+        read_capabilities.push_back({sid, SE_GROUP_ENABLED});
+    }
+    for (const bool use_registry : {true, false}) {
+        WithAppContainerProfile([&](SECURITY_CAPABILITIES& capabilities) {
+            if (use_registry) {
+                capabilities.Capabilities = read_capabilities.data();
+                capabilities.CapabilityCount = gsl::narrow_cast<DWORD>(read_capabilities.size());
+            }
+            const auto arguments = L"--probe-dictionary-order \"" + fixture.directory.wstring() + L"\" \"" +
+                registry_subkey + L"\" " + (use_registry ? L"registry" : L"builtin");
+            // The authorized lane matches a restricted registry reader; the control has no capabilities.
+            const Child probe(executable, arguments, &capabilities, nullptr, use_registry);
+            probe.Join();
+        });
+    }
     WithAppContainerProfile([&](SECURITY_CAPABILITIES& capabilities) {
         Child child(executable, L"--probe \"" + fixture.directory.wstring() + L"\" \"" +
             registry_subkey + L"\"", &capabilities);

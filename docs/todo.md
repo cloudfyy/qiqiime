@@ -440,6 +440,18 @@ each behavior change rather than postponing all testing until the final gate.
         activation remains the final Feedback Hub/UWP/Full Trust/LPAC acceptance
         gate; it is not considered complete merely because unit, x86/x64,
         synchronous, and native-async DCOM tests pass.
+    - [ ] **2026-11-28：UWP 宿主未应用用户词条排序。** 同一用户的复测中，
+      SearchHost 和打包 Full Trust 宿主按预期把用户词条排在首位，UWP
+      AppContainer 测试宿主仍采用默认顺序。用户提供的本机诊断导出：
+      `C:\temp\qiqi-ime-events-user-dict.log`（不纳入仓库）。
+      初步定位：该测试包的令牌没有 `lpacCom` 或 `registryRead`，手动 Broker
+      探针在激活处返回 `0x80070005`。IME 按预期使用内置配置，不得到用户词库
+      同步地址。导出区间没有捕获该包的冷启动，但后续调频均未请求；Full Trust
+      已成功应用词库快照和 Broker 修订。不能据此判定其他 UWP 宿主也无法同步。
+      隔离回归覆盖真实 AppContainer 令牌：`registryRead` 从冷启动读取快照并
+      把置顶词排首位；零能力明确跳过同步，不把空能力列表误报成无效数据。
+      真实支持宿主的 `lpacCom` / `registryRead` 复验仍保留；不记录真实输入
+      或候选，不扩大生产权限。
 - [x] Update user/developer documentation to distinguish implemented surfaces
   from design-only features; automated color checks do not certify all hosts
   or accessibility. Do not generate MSI packages unless explicitly requested.

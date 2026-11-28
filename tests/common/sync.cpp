@@ -24,6 +24,13 @@ int wmain(int argc, wchar_t** argv) try {
         ProbeReader(gsl::at(arguments, 2), gsl::at(arguments, 3), ready.Get());
         return 0;
     }
+    if (arguments.size() == 6 && std::wstring_view(gsl::at(arguments, 1)) == L"--probe-dictionary-order") {
+        const ScopedKernelHandle ready(reinterpret_cast<HANDLE>(_wcstoui64(gsl::at(arguments, 5), nullptr, 10)));
+        const std::wstring_view route(gsl::at(arguments, 4));
+        QIQI_TEST_CHECK(route == L"registry" || route == L"builtin");
+        ProbeDictionaryOrder(gsl::at(arguments, 2), gsl::at(arguments, 3), route == L"registry");
+        return 0;
+    }
     if (arguments.size() == 6 && std::wstring_view(gsl::at(arguments, 1)) == L"--writer") {
         const ScopedKernelHandle start(reinterpret_cast<HANDLE>(_wcstoui64(gsl::at(arguments, 4), nullptr, 10)));
         const ScopedKernelHandle ready(reinterpret_cast<HANDLE>(_wcstoui64(gsl::at(arguments, 5), nullptr, 10)));

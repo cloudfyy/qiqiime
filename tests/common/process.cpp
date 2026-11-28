@@ -12,12 +12,13 @@ struct AttributeListTraits {
 };
 
 Child::Child(const std::filesystem::path& executable, std::wstring arguments,
-             SECURITY_CAPABILITIES* capabilities, HANDLE start) {
+             SECURITY_CAPABILITIES* capabilities, HANDLE start, bool restricted_packages) {
     SECURITY_ATTRIBUTES attributes{sizeof(SECURITY_ATTRIBUTES), nullptr, TRUE};
     QIQI_TEST_CHECK(::CreatePipe(read_.Put(), write_.Put(), &attributes, 0));
     QIQI_TEST_CHECK(::SetHandleInformation(read_.Get(), HANDLE_FLAG_INHERIT, 0));
     SIZE_T size = 0;
-    const DWORD count = capabilities ? 2 : 1;
+    QIQI_TEST_CHECK(capabilities || !restricted_packages);
+    const DWORD count = 1u + (capabilities ? 1u : 0u) + (restricted_packages ? 1u : 0u);
     ::InitializeProcThreadAttributeList(nullptr, count, 0, &size);
     std::vector<uint8_t> storage(size);
     auto* list = reinterpret_cast<LPPROC_THREAD_ATTRIBUTE_LIST>(storage.data());
@@ -31,6 +32,12 @@ Child::Child(const std::filesystem::path& executable, std::wstring arguments,
         QIQI_TEST_CHECK(::UpdateProcThreadAttribute(
             list, 0, PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES,
             capabilities, sizeof(*capabilities), nullptr, nullptr));
+    }
+    DWORD package_policy = PROCESS_CREATION_ALL_APPLICATION_PACKAGES_OPT_OUT;
+    if (restricted_packages) {
+        QIQI_TEST_CHECK(::UpdateProcThreadAttribute(
+            list, 0, PROC_THREAD_ATTRIBUTE_ALL_APPLICATION_PACKAGES_POLICY,
+            &package_policy, sizeof(package_policy), nullptr, nullptr));
     }
     STARTUPINFOEXW startup{};
     startup.StartupInfo.cb = sizeof(startup);

@@ -453,6 +453,7 @@ uint64_t QueryRegistryConfigSequence(
 
 // Publish only the desktop dictionary channel address, never dictionary contents.
 HRESULT SaveUserDictSyncDirectory(const std::filesystem::path& directory, const wchar_t* subkey = nullptr);
+// S_FALSE means that no shared address is available yet or the host uses built-in defaults.
 HRESULT LoadUserDictSyncDirectory(std::filesystem::path& directory, const wchar_t* subkey = nullptr);
 HRESULT SaveUserDictSyncDirectoryToRegistry(
     const std::filesystem::path& directory,

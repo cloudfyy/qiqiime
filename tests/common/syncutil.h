@@ -154,7 +154,7 @@ public:
 class Child final {
 public:
     Child(const std::filesystem::path& executable, std::wstring arguments,
-          SECURITY_CAPABILITIES* capabilities = nullptr, HANDLE start = nullptr);
+          SECURITY_CAPABILITIES* capabilities = nullptr, HANDLE start = nullptr, bool restricted_packages = false);
 
     Child(const Child&) = delete;
     Child& operator=(const Child&) = delete;
@@ -199,6 +199,8 @@ void TestAppContainerTransport(const std::filesystem::path& peer = {});
 void HoldReader(const std::filesystem::path& directory, std::wstring_view mode,
                 HANDLE release, HANDLE ready);
 void ProbeReader(const std::filesystem::path& directory, const wchar_t* registry_subkey, HANDLE ready);
+void ProbeDictionaryOrder(const std::filesystem::path& directory, const wchar_t* registry_subkey,
+                          bool registry_read);
 void Writer(const std::filesystem::path& directory, size_t count, HANDLE start, HANDLE ready);
 void CrashWriter(const std::filesystem::path& directory, HANDLE ready);
 } // namespace qiqi::test::changesync

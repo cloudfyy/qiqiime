@@ -315,8 +315,7 @@ QueryCurrentProcessAppContainerCapabilities(
     }
     constexpr size_t entries_offset =
         offsetof(TOKEN_GROUPS, Groups);
-    if (buffer.size() <
-        sizeof(TOKEN_GROUPS)) {
+    if (buffer.size() < entries_offset) {
         return HRESULT_FROM_WIN32(
             ERROR_INVALID_DATA);
     }
@@ -330,6 +329,9 @@ QueryCurrentProcessAppContainerCapabilities(
             sizeof(SID_AND_ATTRIBUTES)) {
         return HRESULT_FROM_WIN32(
             ERROR_INVALID_DATA);
+    }
+    if (groups->GroupCount == 0) {
+        return S_OK;
     }
     const auto* const first_capability =
         std::addressof(
