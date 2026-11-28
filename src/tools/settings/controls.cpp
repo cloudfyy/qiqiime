@@ -24,7 +24,8 @@ namespace layout = settings_layout;
 LRESULT CALLBACK ScrollFocusSubclass(
     HWND child, UINT message, WPARAM wparam, LPARAM lparam, UINT_PTR id, DWORD_PTR) noexcept {
     const int control_id = ::GetDlgCtrlID(child);
-    const bool switch_only = control_id == kIdChkEasyReading || control_id == kIdChkStatusBar;
+    const bool switch_only = control_id == kIdChkEasyReading || control_id == kIdChkStatusBar ||
+        std::ranges::contains(kSettingsFeedbackControls, control_id);
     if (switch_only && message == BM_CLICK) {
         // The native BM_CLICK uses (0, 0), outside the switch. Reuse its keyboard activation instead.
         if (::IsWindowEnabled(child)) {

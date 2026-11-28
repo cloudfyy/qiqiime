@@ -510,39 +510,50 @@ void RunSettingsToggleLabelTests() {
         QIQI_TEST_CHECK(text_visible);
     }
 
-    SelectSettingsPage(dialog.Get(), *context, SettingsPage::Display);
-    const HWND status = ::GetDlgItem(dialog.Get(), kIdChkStatusBar);
-    for (const bool system_high_contrast : {false, true}) {
-        SetHighContrastOverrideForTest(system_high_contrast);
-        ::SendMessageW(dialog.Get(), WM_SETTINGCHANGE, 0, 0);
-        EnsureSettingsControlVisible(dialog.Get(), status, *context);
+    const auto check_switch = [&](int id, bool QiQiConfig::* field) {
+        const HWND button = ::GetDlgItem(dialog.Get(), id);
+        EnsureSettingsControlVisible(dialog.Get(), button, *context);
+        const bool initial = config.*field;
+        const auto checked = [&] { return ::IsDlgButtonChecked(dialog.Get(), id) == BST_CHECKED; };
+        QIQI_TEST_CHECK(checked() == initial);
         RECT client{};
-        QIQI_TEST_CHECK(::GetClientRect(status, &client));
+        QIQI_TEST_CHECK(::GetClientRect(button, &client));
         const RECT toggle = FluentToggleBounds(client, theme);
         const LONG y = (toggle.top + toggle.bottom) / 2;
         const LPARAM label_point = MAKELPARAM(FluentToggleLabelInset(theme) + 1, y);
         const LPARAM switch_point = MAKELPARAM((toggle.left + toggle.right) / 2, y);
         const auto click = [&](LPARAM down, LPARAM up) {
-            ::SendMessageW(status, WM_LBUTTONDOWN, MK_LBUTTON, down);
-            ::SendMessageW(status, WM_LBUTTONUP, 0, up);
+            ::SendMessageW(button, WM_LBUTTONDOWN, MK_LBUTTON, down);
+            ::SendMessageW(button, WM_LBUTTONUP, 0, up);
         };
         for (const auto& points : {std::pair{label_point, label_point},
                                    std::pair{switch_point, label_point},
                                    std::pair{label_point, switch_point}}) {
             click(points.first, points.second);
-            QIQI_TEST_CHECK(::IsDlgButtonChecked(dialog.Get(), kIdChkStatusBar) == BST_UNCHECKED);
+            QIQI_TEST_CHECK(checked() == initial);
         }
         click(switch_point, switch_point);
         QiQiConfig draft;
         ReadSettingsFromWindowControls(dialog.Get(), draft);
-        QIQI_TEST_CHECK(draft.show_status_bar && !config.show_status_bar);
-        ::SendMessageW(status, WM_KEYDOWN, VK_SPACE, 0);
-        ::SendMessageW(status, WM_KEYUP, VK_SPACE, 0);
-        QIQI_TEST_CHECK(::IsDlgButtonChecked(dialog.Get(), kIdChkStatusBar) == BST_UNCHECKED);
-        ::SendMessageW(status, BM_CLICK, 0, 0);
-        QIQI_TEST_CHECK(::IsDlgButtonChecked(dialog.Get(), kIdChkStatusBar) == BST_CHECKED);
-        ::SendMessageW(status, BM_CLICK, 0, 0);
-        QIQI_TEST_CHECK(::IsDlgButtonChecked(dialog.Get(), kIdChkStatusBar) == BST_UNCHECKED);
+        QIQI_TEST_CHECK(draft.*field != initial && config.*field == initial);
+        ::SendMessageW(button, WM_KEYDOWN, VK_SPACE, 0);
+        ::SendMessageW(button, WM_KEYUP, VK_SPACE, 0);
+        QIQI_TEST_CHECK(checked() == initial);
+        ::SendMessageW(button, BM_CLICK, 0, 0);
+        QIQI_TEST_CHECK(checked() != initial);
+        ::SendMessageW(button, BM_CLICK, 0, 0);
+        QIQI_TEST_CHECK(checked() == initial);
+    };
+    for (const bool system_high_contrast : {false, true}) {
+        SetHighContrastOverrideForTest(system_high_contrast);
+        ::SendMessageW(dialog.Get(), WM_SETTINGCHANGE, 0, 0);
+        SelectSettingsPage(dialog.Get(), *context, SettingsPage::Display);
+        check_switch(kIdChkStatusBar, &QiQiConfig::show_status_bar);
+        SelectSettingsPage(dialog.Get(), *context, SettingsPage::Feedback);
+        check_switch(kIdChkBeepEmpty4, &QiQiConfig::beep_on_empty_4code);
+        check_switch(kIdChkBeepDup4, &QiQiConfig::beep_on_dup_4code);
+        check_switch(kIdChkClearEmpty4, &QiQiConfig::clear_on_empty_4code);
+        check_switch(kIdChkKeySound, &QiQiConfig::enable_key_sound);
     }
 }
 
