@@ -4,6 +4,7 @@
 #include "test.h"
 #include "common/support.h"
 #include "common/dictcodec.h"
+#include "common/dlgutil.h"
 #include "common/fileutil.h"
 #include "common/guids.h"
 #include "common/i18n.h"
@@ -456,6 +457,96 @@ void TestSettingsDisplayPreview() {
     QIQI_TEST_CHECK(config.ui_theme == UiTheme::Dark &&
                     config.ui_text_scale == UiTextScale::Percent150 && config.easy_reading);
 }
+
+} // namespace
+
+void RunSettingsToggleLabelTests() {
+    using namespace settings_detail;
+    SetHighContrastOverrideForTest(false);
+    const auto restore_contrast = gsl::finally([]() noexcept {
+        SetHighContrastOverrideForTest(std::nullopt);
+    });
+    QiQiConfig config;
+    config.ui_language = UiLanguage::ZhCn;
+    config.ui_theme = UiTheme::Light;
+    config.ui_text_scale = UiTextScale::Percent150;
+    const ScopedWindow dialog(CreateSettingsWindow(::GetModuleHandleW(nullptr), nullptr, &config));
+    QIQI_TEST_CHECK(dialog);
+    auto* const context = reinterpret_cast<DialogContext*>(::GetWindowLongPtrW(dialog.Get(), GWLP_USERDATA));
+    QIQI_TEST_CHECK(context && context->d2d.d2d_target && context->d2d.fmt_body);
+    const auto& theme = context->d2d;
+    const RECT row{0, 0, theme.ScalePx(280), theme.ScalePx(34)};
+    const RECT sample{FluentToggleLabelInset(theme), 0,
+                      FluentToggleBounds(row, theme).left - theme.ScalePx(4), row.bottom};
+    const RECT reference{sample.left, row.bottom, sample.right, 2 * row.bottom};
+    const ScopedWindowDC screen;
+    const ScopedMemoryDC dc(::CreateCompatibleDC(screen.Get()));
+    const ScopedGdiHandle<HBITMAP> bitmap(::CreateCompatibleBitmap(screen.Get(), row.right, reference.bottom));
+    QIQI_TEST_CHECK(screen && dc && bitmap && theme.surface_brush);
+    const ScopedSelectObject selected(dc.Get(), bitmap.Get());
+    QIQI_TEST_CHECK(selected);
+
+    for (const int id : {kIdChkSingleCharacter, kIdChkCodeHint, kIdChkUpDownPageTurn,
+                         kIdChkBoldUnderline, kIdChkStatusBar}) {
+        const HWND child = ::GetDlgItem(dialog.Get(), id);
+        std::array<wchar_t, 128> text{};
+        const int length = ::GetWindowTextW(child, text.data(), gsl::narrow_cast<int>(text.size()));
+        QIQI_TEST_CHECK(length > 0);
+        const std::wstring_view label(text.data(), gsl::narrow_cast<size_t>(length));
+        if (id == kIdChkStatusBar) QIQI_TEST_CHECK(label == L"显示状态条");
+        const DRAWITEMSTRUCT item{.CtlType = ODT_BUTTON, .hwndItem = child, .hDC = dc.Get(), .rcItem = row};
+        DrawFluentToggleOrRadioRow(item, theme, false);
+        QIQI_TEST_CHECK(::FillRect(dc.Get(), &reference, theme.surface_brush.Get()));
+        dialog_detail::DrawDialogText(dc.Get(), context->font.Get(), theme.appearance.palette.text_primary,
+            reference, label, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+        bool text_visible = false;
+        for (LONG y = sample.top; y < sample.bottom; ++y) {
+            for (LONG x = sample.left; x < sample.right; ++x) {
+                const COLORREF pixel = ::GetPixel(dc.Get(), x, y);
+                QIQI_TEST_CHECK(pixel == ::GetPixel(dc.Get(), x, y + row.bottom));
+                text_visible |= pixel != theme.appearance.palette.surface_bg;
+            }
+        }
+        QIQI_TEST_CHECK(text_visible);
+    }
+
+    SelectSettingsPage(dialog.Get(), *context, SettingsPage::Display);
+    const HWND status = ::GetDlgItem(dialog.Get(), kIdChkStatusBar);
+    for (const bool system_high_contrast : {false, true}) {
+        SetHighContrastOverrideForTest(system_high_contrast);
+        ::SendMessageW(dialog.Get(), WM_SETTINGCHANGE, 0, 0);
+        EnsureSettingsControlVisible(dialog.Get(), status, *context);
+        RECT client{};
+        QIQI_TEST_CHECK(::GetClientRect(status, &client));
+        const RECT toggle = FluentToggleBounds(client, theme);
+        const LONG y = (toggle.top + toggle.bottom) / 2;
+        const LPARAM label_point = MAKELPARAM(FluentToggleLabelInset(theme) + 1, y);
+        const LPARAM switch_point = MAKELPARAM((toggle.left + toggle.right) / 2, y);
+        const auto click = [&](LPARAM down, LPARAM up) {
+            ::SendMessageW(status, WM_LBUTTONDOWN, MK_LBUTTON, down);
+            ::SendMessageW(status, WM_LBUTTONUP, 0, up);
+        };
+        for (const auto& points : {std::pair{label_point, label_point},
+                                   std::pair{switch_point, label_point},
+                                   std::pair{label_point, switch_point}}) {
+            click(points.first, points.second);
+            QIQI_TEST_CHECK(::IsDlgButtonChecked(dialog.Get(), kIdChkStatusBar) == BST_UNCHECKED);
+        }
+        click(switch_point, switch_point);
+        QiQiConfig draft;
+        ReadSettingsFromWindowControls(dialog.Get(), draft);
+        QIQI_TEST_CHECK(draft.show_status_bar && !config.show_status_bar);
+        ::SendMessageW(status, WM_KEYDOWN, VK_SPACE, 0);
+        ::SendMessageW(status, WM_KEYUP, VK_SPACE, 0);
+        QIQI_TEST_CHECK(::IsDlgButtonChecked(dialog.Get(), kIdChkStatusBar) == BST_UNCHECKED);
+        ::SendMessageW(status, BM_CLICK, 0, 0);
+        QIQI_TEST_CHECK(::IsDlgButtonChecked(dialog.Get(), kIdChkStatusBar) == BST_CHECKED);
+        ::SendMessageW(status, BM_CLICK, 0, 0);
+        QIQI_TEST_CHECK(::IsDlgButtonChecked(dialog.Get(), kIdChkStatusBar) == BST_UNCHECKED);
+    }
+}
+
+namespace {
 
 void TestSettingsAccessibleLayout() {
     using namespace settings_detail;

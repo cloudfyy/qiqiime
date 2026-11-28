@@ -23,13 +23,27 @@ namespace layout = settings_layout;
 
 LRESULT CALLBACK ScrollFocusSubclass(
     HWND child, UINT message, WPARAM wparam, LPARAM lparam, UINT_PTR id, DWORD_PTR) noexcept {
-    if (::GetDlgCtrlID(child) == kIdChkEasyReading &&
+    const int control_id = ::GetDlgCtrlID(child);
+    const bool switch_only = control_id == kIdChkEasyReading || control_id == kIdChkStatusBar;
+    if (switch_only && message == BM_CLICK) {
+        // The native BM_CLICK uses (0, 0), outside the switch. Reuse its keyboard activation instead.
+        if (::IsWindowEnabled(child)) {
+            ::SendMessageW(child, WM_KEYDOWN, VK_SPACE, 0);
+            ::SendMessageW(child, WM_KEYUP, VK_SPACE, 0);
+        }
+        return 0;
+    }
+    if (switch_only &&
         (message == WM_LBUTTONDOWN || message == WM_LBUTTONDBLCLK || message == WM_LBUTTONUP)) {
         const auto* ctx = reinterpret_cast<const DialogContext*>(
             ::GetWindowLongPtrW(::GetParent(child), GWLP_USERDATA));
+        if (!ctx) {
+            QIQI_LOG_WARN("Settings switch {} has no hit-test context", control_id);
+            return 0;
+        }
         RECT client{};
-        if (!ctx || !::GetClientRect(child, &client)) {
-            QIQI_LOG_WARN("Settings comfort-mode hit bounds unavailable");
+        if (!::GetClientRect(child, &client)) {
+            QIQI_LOG_WARN("Settings switch {} hit bounds query failed (error={})", control_id, ::GetLastError());
             return 0;
         }
         const RECT toggle = FluentToggleBounds(client, ctx->d2d);
@@ -39,7 +53,7 @@ LRESULT CALLBACK ScrollFocusSubclass(
             return 0;
         }
     }
-    if (::GetDlgCtrlID(child) == kIdComboUiTextScale && message == CB_SETCURSEL &&
+    if (control_id == kIdComboUiTextScale && message == CB_SETCURSEL &&
         wparam < static_cast<WPARAM>(UiTextScale::Percent150) &&
         ::IsDlgButtonChecked(::GetParent(child), kIdChkEasyReading) == BST_CHECKED) {
         const auto* ctx = reinterpret_cast<const DialogContext*>(

@@ -36,8 +36,8 @@ Windows 系统高对比度仍优先。任务栏“中/英”模式图标继续�
 系统界面识别及 Windows mode 特例保留为后续 TODO，不按进程名推测宿主主题。
 
 关怀模式开启时字号只能选择 150% 或 200%，100%/125% 灰显不可选。
-关闭关怀模式后恢复所有字号选项，保留当前字号。文字区域不切换模式；
-仅点击开关本身可切换，也可用键盘操作。
+关闭关怀模式后恢复所有字号选项，保留当前字号。
+「关怀模式」和「显示状态条」点击文字不会切换；可点击开关本身，或聚焦后按空格切换。
 关怀模式开关位于文字大小上方；禁用字号使用明显的灰色文字。
 字号与显示器 DPI 分开计算，移动到不同缩放比例的屏幕时重新布局。
 
@@ -342,6 +342,8 @@ About places the app icon to the left of the name and version, with licenses and
 the GitHub link below.
 Keyboard focus scrolls into view while OK/Cancel remain visible.
 Toggle focus indicators surround the switch itself, not the entire label row.
+Comfort mode and Show status bar change only when you click the switch itself
+or press Space while it has focus; clicking the label does not toggle it.
 Easy-reading primary targets are at least 44×44 DIP. Candidate text wraps and
 overflow can scroll within a page, without changing candidate order, numbering,
 engine page size, or the user's horizontal/vertical preference. The popup does

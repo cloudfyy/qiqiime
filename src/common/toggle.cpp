@@ -54,126 +54,128 @@ void DrawFluentToggleOrRadioRow(
     const auto& palette = d2d.appearance.palette;
     const bool is_checked = (::SendMessageW(dis.hwndItem, BM_GETCHECK, 0, 0) == BST_CHECKED);
     const bool is_enabled = (::IsWindowEnabled(dis.hwndItem) != FALSE);
-    const COLORREF disabled_text = DisabledControlText(d2d);
+    const COLORREF text_color = is_enabled ? palette.text_primary : DisabledControlText(d2d);
+    const bool gdi_layout = UsesGdiToggleLayout(d2d);
+    const RECT toggle = is_radio ? RECT{} : FluentToggleBounds(dis.rcItem, d2d);
     RECT focus_bounds = dis.rcItem;
     if (!is_radio) {
-        focus_bounds = FluentToggleBounds(dis.rcItem, d2d);
+        focus_bounds = toggle;
         const int padding = d2d.ScalePx(kToggleFocusPadding);
         ::InflateRect(&focus_bounds, padding, padding);
         ::IntersectRect(&focus_bounds, &focus_bounds, &dis.rcItem);
     }
     const bool show_focus = (dis.itemState & (ODS_FOCUS | ODS_NOFOCUSRECT)) == ODS_FOCUS;
-    if (UsesGdiToggleLayout(d2d)) {
-        const ScopedSaveDC saved(dis.hDC);
-        const ScopedSelectObject font(dis.hDC, reinterpret_cast<HFONT>(::SendMessageW(dis.hwndItem, WM_GETFONT, 0, 0)));
+    const ScopedSaveDC saved(dis.hDC);
+    if (!saved) {
+        QIQI_LOG_WARN("Fluent toggle DC save failed");
+        return;
+    }
+    const HFONT font = reinterpret_cast<HFONT>(::SendMessageW(dis.hwndItem, WM_GETFONT, 0, 0));
+    const ScopedSelectObject selected_font(dis.hDC, font);
+    if (font && !selected_font) {
+        QIQI_LOG_WARN("Fluent toggle font selection failed");
+        return;
+    }
+    ::SetTextColor(dis.hDC, text_color);
+    ::SetBkMode(dis.hDC, TRANSPARENT);
+
+    RECT label = dis.rcItem;
+    label.left += is_radio ? d2d.ScalePx(kFluentRadioTextInset) : FluentToggleLabelInset(d2d);
+    if (gdi_layout) {
         const auto background = paint::CreateThemeBrush(palette.surface_bg);
-        const auto border = paint::CreateThemeBrush(is_enabled ? palette.text_primary : disabled_text);
+        const auto border = paint::CreateThemeBrush(text_color);
         if (background) ::FillRect(dis.hDC, &dis.rcItem, background.Get());
-        RECT mark = dis.rcItem;
-        mark.right = mark.left + d2d.ScalePx(18);
-        mark.top += std::max(0L, (mark.bottom - mark.top - d2d.ScalePx(18)) / 2);
-        mark.bottom = mark.top + d2d.ScalePx(18);
-        if (!is_radio) mark = FluentToggleBounds(dis.rcItem, d2d);
+        RECT mark = toggle;
+        if (is_radio) {
+            const int size = d2d.ScalePx(18);
+            mark = dis.rcItem;
+            mark.right = mark.left + size;
+            mark.top += std::max(0L, (mark.bottom - mark.top - size) / 2);
+            mark.bottom = mark.top + size;
+        }
         if (border && (is_enabled || !d2d.appearance.high_contrast)) ::FrameRect(dis.hDC, &mark, border.Get());
-        ::SetTextColor(dis.hDC, is_enabled ? palette.text_primary : disabled_text);
-        ::SetBkMode(dis.hDC, TRANSPARENT);
         if (is_checked) ::DrawTextW(dis.hDC, L"X", 1, &mark, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-        std::array<wchar_t, kToggleLabelCapacity> text{};
-        ::GetWindowTextW(dis.hwndItem, text.data(), gsl::narrow_cast<int>(text.size()));
-        if (!is_enabled && d2d.appearance.high_contrast) paint::AppendDisabledSuffix(text, disabled_suffix);
-        RECT label = dis.rcItem;
-        label.left += FluentToggleLabelInset(d2d);
-        ::DrawTextW(dis.hDC, text.data(), -1, &label, DT_LEFT | DT_WORDBREAK | DT_NOPREFIX);
         if (show_focus) ::DrawFocusRect(dis.hDC, &focus_bounds);
-        return;
-    }
+    } else {
+        const ScopedD2DDcDraw draw_guard(d2d.d2d_target.Get(), dis.hDC, dis.rcItem, nullptr, d2d.clip_controls_to_dc);
+        if (!draw_guard) return;
+        d2d.d2d_target->Clear(ColorRefToD2DColor(palette.surface_bg));
 
-    const ScopedD2DDcDraw draw_guard(d2d.d2d_target.Get(), dis.hDC, dis.rcItem, nullptr, d2d.clip_controls_to_dc);
-    if (!draw_guard) {
-        return;
-    }
-    d2d.d2d_target->Clear(ColorRefToD2DColor(palette.surface_bg));
+        const float h = static_cast<float>(dis.rcItem.bottom - dis.rcItem.top);
+        const float w = static_cast<float>(dis.rcItem.right - dis.rcItem.left);
+        const float cy = h * 0.5f;
+        const auto accent_brush = CreateSolidBrush(
+            d2d.d2d_target.Get(), ColorRefToD2DColor(is_enabled ? palette.text_accent : text_color));
+        const auto border_brush = CreateSolidBrush(
+            d2d.d2d_target.Get(), ColorRefToD2DColor(is_enabled ? palette.border_color : text_color));
+        const auto knob_brush = CreateSolidBrush(
+            d2d.d2d_target.Get(),
+            ColorRefToD2DColor(!is_enabled ? text_color :
+                (is_checked ? palette.selection_text : palette.text_secondary)));
 
-    const float h = static_cast<float>(dis.rcItem.bottom - dis.rcItem.top);
-    const float w = static_cast<float>(dis.rcItem.right - dis.rcItem.left);
-    const float cy = h * 0.5f;
-
-    const auto accent_brush = CreateSolidBrush(
-        d2d.d2d_target.Get(), ColorRefToD2DColor(is_enabled ? palette.text_accent : disabled_text));
-    const auto border_brush = CreateSolidBrush(
-        d2d.d2d_target.Get(), ColorRefToD2DColor(is_enabled ? palette.border_color : disabled_text));
-    const auto knob_brush = CreateSolidBrush(
-        d2d.d2d_target.Get(),
-        ColorRefToD2DColor(!is_enabled ? disabled_text :
-            (is_checked ? palette.selection_text : palette.text_secondary)));
-    const auto text_brush = CreateSolidBrush(
-        d2d.d2d_target.Get(),
-        ColorRefToD2DColor(is_enabled ? palette.text_primary : disabled_text));
-
-    const float text_left = is_radio ? d2d.ScaleF(kFluentRadioTextInset)
-        : static_cast<float>(FluentToggleLabelInset(d2d));
-    float text_right = w - d2d.ScaleF(kFluentToggleTextInset);
-
-    if (is_radio) {
-        const float r_outer = d2d.ScaleF(kRadioOuterRadius);
-        const D2D1_ELLIPSE outer = D2D1::Ellipse(D2D1::Point2F(d2d.ScaleF(kRadioCenterX), cy), r_outer, r_outer);
-        if (is_checked && accent_brush) {
-            d2d.d2d_target->FillEllipse(outer, accent_brush.Get());
+        if (is_radio) {
+            const float r_outer = d2d.ScaleF(kRadioOuterRadius);
+            const D2D1_ELLIPSE outer = D2D1::Ellipse(D2D1::Point2F(d2d.ScaleF(kRadioCenterX), cy), r_outer, r_outer);
+            if (is_checked && accent_brush) {
+                d2d.d2d_target->FillEllipse(outer, accent_brush.Get());
+                if (knob_brush) {
+                    d2d.d2d_target->FillEllipse(
+                        D2D1::Ellipse(D2D1::Point2F(d2d.ScaleF(kRadioCenterX), cy),
+                                      d2d.ScaleF(kRadioInnerRadius), d2d.ScaleF(kRadioInnerRadius)), knob_brush.Get());
+                }
+            } else if (border_brush && (is_enabled || !d2d.appearance.high_contrast)) {
+                d2d.d2d_target->DrawEllipse(outer, border_brush.Get(), 1.5f);
+            }
+            label.right -= d2d.ScalePx(kFluentToggleTextInset);
+        } else {
+            const float sw_right = static_cast<float>(toggle.right - dis.rcItem.left);
+            const float sw_left = static_cast<float>(toggle.left - dis.rcItem.left);
+            const float radius = d2d.ScaleF(kToggleTrackRadius);
+            const D2D1_ROUNDED_RECT track = D2D1::RoundedRect(
+                D2D1::RectF(sw_left, cy - radius, sw_right, cy + radius), radius, radius);
+            if (is_checked && accent_brush) {
+                d2d.d2d_target->FillRoundedRectangle(track, accent_brush.Get());
+            } else if (border_brush && (is_enabled || !d2d.appearance.high_contrast)) {
+                d2d.d2d_target->DrawRoundedRectangle(track, border_brush.Get(), 1.4f);
+            }
+            const float knob_x = is_checked ? sw_right - radius : sw_left + radius;
             if (knob_brush) {
                 d2d.d2d_target->FillEllipse(
-                    D2D1::Ellipse(D2D1::Point2F(d2d.ScaleF(kRadioCenterX), cy),
-                                  d2d.ScaleF(kRadioInnerRadius), d2d.ScaleF(kRadioInnerRadius)), knob_brush.Get());
+                    D2D1::Ellipse(D2D1::Point2F(knob_x, cy),
+                                  d2d.ScaleF(kToggleKnobRadius), d2d.ScaleF(kToggleKnobRadius)), knob_brush.Get());
             }
-        } else if (border_brush && (is_enabled || !d2d.appearance.high_contrast)) {
-            d2d.d2d_target->DrawEllipse(outer, border_brush.Get(), 1.5f);
+            label.right = toggle.left - d2d.ScalePx(kToggleLabelGap);
         }
-    } else {
-        const RECT bounds = FluentToggleBounds(
-            RECT{0, 0, dis.rcItem.right - dis.rcItem.left, dis.rcItem.bottom - dis.rcItem.top}, d2d);
-        const float sw_right = static_cast<float>(bounds.right);
-        const float sw_left = static_cast<float>(bounds.left);
-        const D2D1_ROUNDED_RECT track = D2D1::RoundedRect(
-            D2D1::RectF(sw_left, cy - d2d.ScaleF(kToggleTrackRadius), sw_right, cy + d2d.ScaleF(kToggleTrackRadius)),
-            d2d.ScaleF(kToggleTrackRadius), d2d.ScaleF(kToggleTrackRadius));
-        if (is_checked && accent_brush) {
-            d2d.d2d_target->FillRoundedRectangle(track, accent_brush.Get());
-        } else if (border_brush && (is_enabled || !d2d.appearance.high_contrast)) {
-            d2d.d2d_target->DrawRoundedRectangle(track, border_brush.Get(), 1.4f);
+        if (show_focus) {
+            const auto focus = CreateSolidBrush(d2d.d2d_target.Get(), ColorRefToD2DColor(palette.focus_color));
+            if (focus) {
+                if (is_radio) d2d.d2d_target->DrawRectangle(D2D1::RectF(1, 1, w - 1, h - 1), focus.Get(), 2);
+                else d2d.d2d_target->DrawRoundedRectangle(D2D1::RoundedRect(
+                    D2D1::RectF(static_cast<float>(focus_bounds.left - dis.rcItem.left),
+                        static_cast<float>(focus_bounds.top - dis.rcItem.top),
+                        static_cast<float>(focus_bounds.right - dis.rcItem.left),
+                        static_cast<float>(focus_bounds.bottom - dis.rcItem.top)),
+                    d2d.ScaleF(kToggleTrackRadius), d2d.ScaleF(kToggleTrackRadius)), focus.Get(), 2);
+            }
         }
-        const float knob_x = is_checked ? (sw_right - d2d.ScaleF(kToggleTrackRadius)) :
-                                         (sw_left + d2d.ScaleF(kToggleTrackRadius));
-        if (knob_brush) {
-            d2d.d2d_target->FillEllipse(
-                D2D1::Ellipse(D2D1::Point2F(knob_x, cy),
-                              d2d.ScaleF(kToggleKnobRadius), d2d.ScaleF(kToggleKnobRadius)), knob_brush.Get());
-        }
-        text_right = sw_left - d2d.ScaleF(kToggleLabelGap);
     }
 
+    // Paint after Direct2D copies the indicator to the DC, using the same text metrics as Settings labels.
     std::array<wchar_t, kToggleLabelCapacity> label_text{};
     ::GetWindowTextW(dis.hwndItem, label_text.data(), gsl::narrow_cast<int>(label_text.size()));
     if (!is_enabled && d2d.appearance.high_contrast) paint::AppendDisabledSuffix(label_text, disabled_suffix);
-    if (d2d.fmt_body && text_brush && gsl::at(label_text, 0) != L'\0') {
-        const D2D1_RECT_F txt_rc = D2D1::RectF(text_left, 0.0f, text_right, h);
-        d2d.d2d_target->DrawTextW(
-            label_text.data(),
-            gsl::narrow_cast<UINT32>(wcslen(label_text.data())),
-            d2d.fmt_body.Get(),
-            txt_rc,
-            text_brush.Get(),
-            D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT);
+    const int length = gsl::narrow_cast<int>(std::wcslen(label_text.data()));
+    if (length == 0 || ::IsRectEmpty(&label)) return;
+    constexpr UINT flags = DT_LEFT | DT_WORDBREAK | DT_NOPREFIX;
+    RECT measured = label;
+    const int height = ::DrawTextW(dis.hDC, label_text.data(), length, &measured, flags | DT_CALCRECT);
+    if (height <= 0) {
+        QIQI_LOG_WARN("Fluent toggle label measurement failed");
+        return;
     }
-    if (show_focus) {
-        const auto focus = CreateSolidBrush(d2d.d2d_target.Get(), ColorRefToD2DColor(palette.focus_color));
-        if (focus) {
-            if (is_radio) d2d.d2d_target->DrawRectangle(D2D1::RectF(1, 1, w - 1, h - 1), focus.Get(), 2);
-            else d2d.d2d_target->DrawRoundedRectangle(D2D1::RoundedRect(
-                D2D1::RectF(static_cast<float>(focus_bounds.left - dis.rcItem.left),
-                    static_cast<float>(focus_bounds.top - dis.rcItem.top),
-                    static_cast<float>(focus_bounds.right - dis.rcItem.left),
-                    static_cast<float>(focus_bounds.bottom - dis.rcItem.top)),
-                d2d.ScaleF(kToggleTrackRadius), d2d.ScaleF(kToggleTrackRadius)), focus.Get(), 2);
-        }
+    label.top += std::max(0L, (label.bottom - label.top - height) / 2);
+    if (!::DrawTextW(dis.hDC, label_text.data(), length, &label, flags)) {
+        QIQI_LOG_WARN("Fluent toggle label drawing failed");
     }
 }
 

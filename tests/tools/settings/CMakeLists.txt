@@ -31,3 +31,5 @@ target_link_libraries(qiqi_settings_test PRIVATE
 )
 add_dependencies(qiqi_settings_test QiQiIMESettings)
 add_test(NAME QiQiSettingsTest COMMAND qiqi_settings_test)
+add_test(NAME QiQiSettingsToggleLabelTest COMMAND qiqi_settings_test --toggle-label-tests)
+set_tests_properties(QiQiSettingsToggleLabelTest PROPERTIES RUN_SERIAL TRUE)

@@ -6,11 +6,14 @@
 #include "tools/settings/internal.h"
 
 #include <objbase.h>
+#include <span>
+#include <string_view>
 
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE prev_instance, LPWSTR cmd_line, int show_cmd);
 
 namespace qiqi::test {
 void RunSettingsCleanupTests();
+void RunSettingsToggleLabelTests();
 void RunSettingsTransferTests();
 }
 
@@ -135,7 +138,7 @@ void TestStandaloneRestoreDefaults() {
 
 } // namespace
 
-int main() {
+int main(int argc, char* argv[]) {
     const HRESULT co_hr = ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
     QIQI_TEST_CHECK(SUCCEEDED(co_hr));
     const auto co_cleanup = gsl::finally([]() noexcept {
@@ -143,6 +146,16 @@ int main() {
     });
     qiqi::g_dll_instance = ::GetModuleHandleW(nullptr);
     QIQI_TEST_CHECK(qiqi::g_dll_instance != nullptr);
+
+    if (argc != 1) {
+        const std::span args(argv, gsl::narrow_cast<size_t>(argc));
+        if (args.size() == 2 && std::string_view(gsl::at(args, 1)) == "--toggle-label-tests") {
+            qiqi::test::RunSettingsToggleLabelTests();
+            return 0;
+        }
+        std::cerr << "Usage: qiqi_settings_test [--toggle-label-tests]\n";
+        return EXIT_FAILURE;
+    }
 
     TestStandaloneSettingsStartup();
     TestStandaloneRestoreDefaults();

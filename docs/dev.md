@@ -144,7 +144,7 @@ Repeat with the x86 preset and build directory. Use
 | --- | --- |
 | Common, synchronization, engine | `QiQiCommonTest`, `QiQiChangeSyncTest`, `QiQiEngineTest` |
 | TSF and composition | `QiQiTsfUiTest`, `QiQiCompositionLifecycleTest`, `QiQiCapsLockSwitchTest` |
-| Desktop tools | `QiQiSettingsTest`, `QiQiDictManagerTest`, `QiQiLogMonitorTest`, `QiQiLogMonitorStartupTest`, `QiQiStandaloneToolsTest` |
+| Desktop tools | `QiQiSettingsTest`, `QiQiSettingsToggleLabelTest`, `QiQiDictManagerTest`, `QiQiLogMonitorTest`, `QiQiLogMonitorStartupTest`, `QiQiStandaloneToolsTest` |
 | Skin catalog, selection, rendering and input preservation | `QiQiSkinTest` |
 | Metrics | `QiQiMetricsTest`, `QiQiMonitorMetricsTest` |
 | Installer sources and runtime layout | `QiQiInstallerShortcutsTest`, `QiQiRuntimeArchitectureTest` |
