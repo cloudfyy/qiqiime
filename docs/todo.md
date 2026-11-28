@@ -489,6 +489,37 @@ status-bar/tooltip skin support require separate design approval.
   `full.idx` 只读加载，不扩大 AppContainer 权限。真实安装、卸载与重启检查
   沿用[现有 MSI 验收项](#high-priority-boundary-regressions)；推送后复跑云端 lint。
 
+- [ ] **2026-11-28：Windows 系统触摸键盘与触控兼容性。**
+  区分笔记本触控板（Touchpad）、系统触摸键盘（Touch keyboard）及触屏候选操作。
+  先补齐基础兼容，再评估可选增强；键盘 UI 交给 Windows，不自研软键盘，
+  不顺带扩展五笔引擎的手写、滑行输入能力。
+  - [ ] **优先：候选窗及其他 IME UI 避让触摸键盘。**
+    [当前候选定位](../src/ime/ui/candlayout.cpp)只考虑显示器工作区。
+    评估使用 `IFrameworkInputPane` 获取键盘实际区域及显隐通知，在键盘展开、
+    收起或区域变化时重新定位、限制候选窗高度；不能靠置顶压过触摸键盘。
+    查询及通知注册失败保留真实 HRESULT，不把未知遮挡区域当作已完成避让。
+  - [ ] **优先：基础输入及真实宿主验收。**
+    在 Windows 10/11 的桌面及 UWP/AppContainer 宿主验证字母、空格、回车、
+    退格、中英文切换，以及键盘展开/收起时的组合与焦点生命周期。
+    覆盖屏幕底部输入框、停靠/浮动键盘、多屏和混合 DPI；保留现有未完成输入
+    策略，不抢宿主焦点，不由 IME 强制弹出键盘或增加 AppContainer 权限。
+    添加针对遮挡几何及相关输入行为的隔离回归，真实触摸设备验收另行记录，
+    不以鼠标模拟、单元测试或 TSF 类别声明代替。
+  - [ ] **后续：触控板及触屏候选交互。**
+    复验现有点选、右键及双指滚动通路，不接管系统保留的多指手势。
+    触屏区分点按与滑动，支持取消并防止误选或重复提交；触控优化参考
+    44×44 有效像素的点击目标及至少 4 有效像素的可见间距。
+    保留键盘/鼠标既有行为，不以永久放大全部桌面候选窗代替触控适配。
+  - [ ] **可选增强：触摸优化键盘布局。**
+    未实现 `ITfFnGetPreferredTouchKeyboardLayout` 时，系统默认经典布局仍是
+    允许的基础路径。先验证五笔字母输入；仅在实测确认简中优化布局适合五笔后，
+    再通过 `ITfFunctionProvider` 暴露布局接口，不把拼音布局等同于拼音引擎。
+    启用该布局时处理 `VK_PACKET` 携带的 `0xF003` 下一页及 `0xF004` 上一页
+    协议，覆盖测试/实际按键通知、候选边界及无候选状态，不把翻页私用字符写入正文。
+  依据：[微软 IME 触摸键盘要求](https://learn.microsoft.com/en-us/windows/apps/develop/input/input-method-editor-requirements#ime-and-touch-keyboard)、
+  [首选布局接口](https://learn.microsoft.com/en-us/windows/win32/api/ctffunc/nf-ctffunc-itffngetpreferredtouchkeyboardlayout-getlayout)及
+  [触控点击目标指南](https://learn.microsoft.com/en-us/windows/apps/develop/input/touch-interactions#hit-targets)。
+
 - [x] <a id="wubi-w05"></a> **W05 / P1：离线拼音反查五笔码。**
   “输入习惯”提供 `EnableZPinyinLookup`（默认关闭），ZIP 字段为
   `enable_z_pinyin_lookup`。开启后，中文空闲时首码 `z` 进入独立反查状态。
