@@ -13,8 +13,16 @@ Feedback Hub:
   beyond `runFullTrust`.
 
 It is an opt-in test fixture, independent of normal CTest and the QiQiIME
-installer. Its package and executable use an orange icon with a square `F`
-badge, including the native title-bar icon and taskbar icon.
+installer. Its package and executable use a text-free cyan checked-window
+glyph on a navy rounded tile, including the title-bar and taskbar icons.
+The Rich Edit target starts empty; instructions are not inserted as editable
+document text.
+
+After building, run `ctest --test-dir build\hosts\fulltrust -C Release --output-on-failure`
+for the isolated `QiQiFullTrustUiTest`. It checks the actual initial input length
+and both runtime window icons against the generated icon without installing a
+package or seeding registry state. Its diagnostic files use a private temporary
+LocalAppData directory.
 
 ## What it tests
 
@@ -46,21 +54,21 @@ From the repository root:
 ```powershell
 tests\hosts\fulltrust\Package.ps1 `
   -Configuration Release `
-  -PackageVersion 0.1.0.0
+  -PackageVersion 0.2.0.0
 ```
 
 The script:
 
 1. validates the default-virtualization manifest;
-2. builds the standalone x64 CMake project with the generated `F` window icon;
+2. builds the standalone x64 CMake project with its generated window icon;
 3. verifies that the PE does not have the AppContainer flag;
 4. generates package visual assets and a PRI;
 5. signs with the shared public/private development certificate pair; and
-6. unpacks and verifies the final MSIX.
+6. unpacks and verifies `dist\test-hosts\fulltrust-<version>.msix`.
 
 Public certificate:
 
-`tests\hosts\uwp\cert\QiQiImeDevelopment.cer`
+`tests\hosts\uwp\dev.cer`
 
 The matching private key must exist in the build user's
 `Cert:\CurrentUser\My`. Private keys and PFX files are never placed in this

@@ -28,6 +28,19 @@ namespace controls = winrt::Windows::UI::Xaml::Controls;
 
 constexpr std::wstring_view kPersistentLogName = L"qiqi-appcontainer-host.log";
 
+std::wstring_view PackageProfile(std::wstring_view full_name) noexcept {
+    constexpr std::wstring_view prefix = L"Cloudfyy.QiQiUwp.";
+    if (!full_name.starts_with(prefix)) return {};
+    full_name.remove_prefix(prefix.size());
+    const auto name = full_name.substr(0, full_name.find(L'_'));
+    return name == L"zero" || name == L"com" || name == L"reg" ? name : std::wstring_view{};
+}
+
+bool MatchesProfile(std::wstring_view profile, const token::State& state) noexcept {
+    return !profile.empty() && state.is_app_container && state.capabilities_error == ERROR_SUCCESS &&
+        state.has_lpac_com == (profile == L"com") && state.has_registry_read == (profile == L"reg");
+}
+
 std::wstring_view HStringView(winrt::hstring const& value) noexcept {
     return {value.c_str(), value.size()};
 }
@@ -107,14 +120,15 @@ void HostApp::BuildWindow() {
     panel.Padding(xaml::Thickness{20, 20, 20, 20});
     panel.HorizontalAlignment(xaml::HorizontalAlignment::Stretch);
 
+    const PackageState package_state = ReadPackageState();
+    const auto profile = PackageProfile(package_state.full_name);
     controls::TextBlock title;
-    title.Text(L"QiQiIME AppContainer Search Contract Host");
+    title.Text(std::format(L"QiQi UWP: {}", profile.empty() ? L"unknown" : profile));
     title.FontSize(28);
     title.FontWeight(winrt::Windows::UI::Text::FontWeights::SemiBold());
     AddControl(panel, title, 0);
 
     controls::TextBlock package_status;
-    const PackageState package_state = ReadPackageState();
     package_status.Text(FormatPackageState(package_state));
     package_status.TextWrapping(xaml::TextWrapping::Wrap);
     AddControl(panel, package_status, 8);
@@ -127,6 +141,9 @@ void HostApp::BuildWindow() {
                 : package_state.full_name,
             package_state.package_error,
             token::FormatState(package_state.token)));
+    if (!MatchesProfile(profile, package_state.token)) {
+        diagnostics_->Error(L"host.profile", L"Token capabilities do not match the test profile.");
+    }
 
     controls::TextBlock description;
     description.Text(
@@ -180,7 +197,7 @@ void HostApp::BuildWindow() {
     actions.Children().Append(run_fixtures_);
 
     probe_broker_.Content(winrt::box_value(
-        L"Probe Config Broker"));
+        L"Probe Config Access"));
     probe_broker_.Click(
         [weak = get_weak()](auto&&, auto&&) {
             if (const auto self = weak.get()) {
@@ -194,8 +211,7 @@ void HostApp::BuildWindow() {
 
     broker_status_.TextWrapping(
         xaml::TextWrapping::Wrap);
-    broker_status_.Text(
-        L"Config Broker has not been probed.");
+    broker_status_.Text(L"Configuration access has not been probed.");
     AddControl(panel, broker_status_, 8);
 
     fixture_status_.Text(L"Loading packaged test data...");
@@ -229,13 +245,18 @@ void HostApp::BuildWindow() {
 void HostApp::ProbeConfigBroker() noexcept {
     const broker::ProbeResult probe =
         broker::ProbeConfiguration();
+    ULONGLONG registry_revision = 0;
+    DWORD size = sizeof(registry_revision);
+    const LSTATUS registry = ::RegGetValueW(HKEY_CURRENT_USER, L"Software\\QiQiIME", L"ConfigSequence",
+        RRF_RT_REG_QWORD, nullptr, &registry_revision, &size);
     try {
         const std::wstring text =
             std::format(
                 L"Config Broker: coinitialize=0x{:08X}; "
                 L"create=0x{:08X}; blanket=0x{:08X}; "
                 L"read=0x{:08X}; revision={}; "
-                L"snapshot_bytes={}",
+                L"snapshot_bytes={}\r\n"
+                L"Registry: error=0x{:08X}; revision={}",
                 probe.ApartmentBits(),
                 std::bit_cast<uint32_t>(
                     probe.create),
@@ -244,7 +265,9 @@ void HostApp::ProbeConfigBroker() noexcept {
                 std::bit_cast<uint32_t>(
                     probe.read),
                 probe.revision,
-                probe.snapshot_size);
+                probe.snapshot_size,
+                static_cast<uint32_t>(registry),
+                registry == ERROR_SUCCESS ? registry_revision : 0);
         broker_status_.Text(text);
         if (SUCCEEDED(probe.read)) {
             diagnostics_->Info(
@@ -704,12 +727,16 @@ PackageState HostApp::ReadPackageState() noexcept {
 }
 
 std::wstring HostApp::FormatPackageState(const PackageState& state) {
+    const auto profile = PackageProfile(state.full_name);
     return std::format(
         L"PackageFullName: {}\r\n"
         L"{}\r\n"
+        L"Profile: {} (token match={})\r\n"
         L"Package error={}",
         state.full_name.empty() ? L"<unavailable>" : state.full_name,
         token::FormatState(state.token),
+        profile.empty() ? L"unknown" : profile,
+        MatchesProfile(profile, state.token),
         state.package_error);
 }
 

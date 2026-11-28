@@ -6,7 +6,7 @@ param(
     [ValidateSet('Debug', 'Release')]
     [string] $Configuration = 'Release',
     [ValidatePattern('^\d+\.\d+\.\d+\.\d+$')]
-    [string] $PackageVersion = '0.1.0.0',
+    [string] $PackageVersion = '0.2.0.0',
     [switch] $SkipSigning
 )
 
@@ -39,10 +39,10 @@ $repositoryRoot = [IO.Path]::GetFullPath(
     (Join-Path $PSScriptRoot '..\..\..'))
 $buildRoot = Join-Path $repositoryRoot `
     'build\hosts\fulltrust'
-$stageRoot = Join-Path $buildRoot 'staging'
+$stageRoot = Join-Path $buildRoot ('stage-' + [Guid]::NewGuid().ToString('N'))
 $packageRoot = Join-Path $repositoryRoot 'dist\test-hosts'
 $certificatePath = Join-Path $repositoryRoot `
-    'tests\hosts\uwp\cert\QiQiImeDevelopment.cer'
+    'tests\hosts\uwp\dev.cer'
 $sdkRoot = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10'
 $sdkVersion = '10.0.26100.0'
 $sdkBin = Join-Path $sdkRoot "bin\$sdkVersion\x64"
@@ -50,7 +50,7 @@ $makeAppx = Join-Path $sdkBin 'makeappx.exe'
 $makePri = Join-Path $sdkBin 'makepri.exe'
 $signTool = Join-Path $sdkBin 'signtool.exe'
 
-. (Join-Path $PSScriptRoot '..\Generate-HostAssets.ps1')
+. (Join-Path $PSScriptRoot '..\Assets.ps1')
 
 foreach ($tool in @($makeAppx, $makePri, $signTool)) {
     if (-not (Test-Path -LiteralPath $tool -PathType Leaf)) {
@@ -59,13 +59,6 @@ foreach ($tool in @($makeAppx, $makePri, $signTool)) {
 }
 
 & (Join-Path $PSScriptRoot 'Validate-Host.ps1')
-
-if (Test-Path -LiteralPath $buildRoot) {
-    Remove-Item -LiteralPath $buildRoot -Recurse -Force
-}
-New-Item -ItemType Directory `
-    -Path $stageRoot, (Join-Path $stageRoot 'Assets'), $packageRoot `
-    -Force | Out-Null
 
 $cmake = (Get-Command cmake -ErrorAction Stop).Source
 & $cmake `
@@ -84,24 +77,11 @@ if ($LASTEXITCODE -ne 0) {
     throw "Full-trust host build failed with exit code $LASTEXITCODE."
 }
 
-$builtExecutable = Get-ChildItem -LiteralPath $buildRoot `
-    -Recurse `
-    -Filter 'QiQiImePackagedFullTrustHost.exe' `
-    -File |
-    Where-Object FullName -notlike "*\staging\*" |
-    Sort-Object LastWriteTime -Descending |
-    Select-Object -First 1
-if (-not $builtExecutable) {
+$builtExecutable = Join-Path $buildRoot "$Configuration\QiQiImePackagedFullTrustHost.exe"
+if (!(Test-Path -LiteralPath $builtExecutable -PathType Leaf)) {
     throw 'The built QiQiImePackagedFullTrustHost.exe was not found.'
 }
-Copy-Item -LiteralPath $builtExecutable.FullName `
-    -Destination (
-        Join-Path $stageRoot 'QiQiImePackagedFullTrustHost.exe')
-Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'Package.appxmanifest') `
-    -Destination (Join-Path $stageRoot 'AppxManifest.xml')
-
-$manifest = [xml](Get-Content -LiteralPath (
-    Join-Path $stageRoot 'AppxManifest.xml') -Raw)
+$manifest = [xml](Get-Content -LiteralPath (Join-Path $PSScriptRoot 'Package.appxmanifest') -Raw)
 $manifestIdentity = $manifest.SelectSingleNode(
     "//*[local-name()='Identity']")
 $manifestIdentity.SetAttribute('Version', $PackageVersion)
@@ -112,6 +92,8 @@ try {
     if ($certificate.HasPrivateKey) {
         throw 'The shared source development certificate contains a private key.'
     }
+    New-Item -ItemType Directory -Path $stageRoot, $packageRoot -Force | Out-Null
+    Copy-Item -LiteralPath $builtExecutable -Destination $stageRoot
     $manifestIdentity.SetAttribute(
         'Publisher',
         $certificate.Subject)
@@ -119,14 +101,7 @@ try {
 
     New-QiQiHostPackageAssets `
         -OutputDirectory (Join-Path $stageRoot 'Assets') `
-        -GlyphIconPath (Join-Path $repositoryRoot 'data\qiqiime-light.ico') `
-        -BackgroundColor '#9A3412' `
-        -ForegroundColor '#1A0B00' `
-        -BadgeColor '#FDBA74' `
-        -BadgeTextColor '#2D1600' `
-        -BadgeText 'F' `
-        -BadgeShape Square `
-        -HostLabel 'FULL TRUST TEST HOST'
+        -IconPath (Join-Path $buildRoot 'generated\icon\full.ico')
 
     $priConfig = Join-Path $buildRoot 'priconfig.xml'
     & $makePri createconfig /cf $priConfig /dq en-US_zh-CN /o
@@ -144,7 +119,7 @@ try {
     }
 
     $packagePath = Join-Path $packageRoot `
-        "QiQiImePackagedFullTrustHost_$PackageVersion.msix"
+        "fulltrust-$PackageVersion.msix"
     if (Test-Path -LiteralPath $packagePath) {
         Remove-Item -LiteralPath $packagePath -Force
     }
@@ -179,7 +154,7 @@ try {
     if (-not $SkipSigning) {
         & (Join-Path $PSScriptRoot 'Validate-Host.ps1') `
             -PackagePath $packagePath `
-            -ExecutablePath $builtExecutable.FullName
+            -ExecutablePath $builtExecutable
     }
 
     Write-Host "Built packaged full-trust host: $packagePath"
@@ -188,5 +163,8 @@ try {
     }
 } finally {
     $certificate.Dispose()
+    if (Test-Path -LiteralPath $stageRoot -PathType Container) {
+        Remove-Item -LiteralPath (Resolve-Path -LiteralPath $stageRoot).Path -Recurse -Force
+    }
 }
 

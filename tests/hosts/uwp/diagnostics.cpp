@@ -27,7 +27,7 @@ constexpr uint64_t kInputKeyword = 0x0004;
 constexpr uint8_t kInfoLevel = WINEVENT_LEVEL_INFO;
 constexpr uint8_t kWarningLevel = WINEVENT_LEVEL_WARNING;
 constexpr uint8_t kErrorLevel = WINEVENT_LEVEL_ERROR;
-constexpr std::wstring_view kProcessName = L"QiQiImeAppContainerSearchHost.exe";
+constexpr std::wstring_view kProcessName = QIQI_HOST_PROCESS_NAME;
 constexpr std::wstring_view kPersistentLogName = L"qiqi-appcontainer-host.log";
 
 template <uint8_t EventLevel, uint64_t Keyword>

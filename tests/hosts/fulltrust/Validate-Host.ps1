@@ -58,7 +58,7 @@ function Test-AppContainerPeFlag {
 
 $manifestPath = Join-Path $PSScriptRoot 'Package.appxmanifest'
 $certificatePath = Join-Path $PSScriptRoot `
-    '..\uwp\cert\QiQiImeDevelopment.cer'
+    '..\uwp\dev.cer'
 $manifest = [xml](Get-Content -LiteralPath $manifestPath -Raw)
 $identity = $manifest.SelectSingleNode(
     "//*[local-name()='Identity']")

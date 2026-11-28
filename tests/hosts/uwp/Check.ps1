@@ -3,13 +3,17 @@
 
 [CmdletBinding()]
 param(
+    [ValidateSet('zero', 'com', 'reg')]
+    [string] $Profile = 'zero',
     [string] $PackagePath,
-    [string] $ExpectedPublisher,
-    [string] $ExpectedSignerThumbprint
+    [string] $ExpectedSignerThumbprint,
+    [switch] $AllowUnsigned
 )
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+. (Join-Path $PSScriptRoot 'Profile.ps1')
+$app = Get-QiQiUwpProfile -Name $Profile
 
 function Assert-HostCondition {
     param(
@@ -46,33 +50,41 @@ function Get-StringMatches {
     return $false
 }
 
-$manifestPath = Join-Path $PSScriptRoot 'Package.appxmanifest'
 $fixturePath = Join-Path $PSScriptRoot 'TestData.json'
-$sourceCertificatePath = Join-Path $PSScriptRoot `
-    'cert\QiQiImeDevelopment.cer'
-$manifest = [xml](Get-Content -LiteralPath $manifestPath -Raw)
+$sourceCertificatePath = Join-Path $PSScriptRoot 'dev.cer'
 
-$identity = $manifest.SelectSingleNode("//*[local-name()='Identity']")
-Assert-HostCondition ($null -ne $identity) 'Package identity is missing.'
-Assert-HostCondition (
-    $identity.GetAttribute('ProcessorArchitecture') -eq 'x64'
-) 'The development host manifest must target x64.'
-Assert-HostCondition (
-    $manifest.SelectNodes("//*[local-name()='Capability']").Count -eq 0
-) 'The AppContainer host must not request capabilities.'
-Assert-HostCondition (
-    $manifest.SelectNodes("//*[contains(local-name(), 'DeviceCapability')]").Count -eq 0
-) 'The AppContainer host must not request device capabilities.'
-Assert-HostCondition (
-    $manifest.SelectNodes("//*[local-name()='Extension' and @Category='windows.search']").Count -eq 1
-) 'The AppContainer host must declare exactly one windows.search extension.'
-Assert-HostCondition (
-    $null -eq $manifest.SelectSingleNode("//*[@RuntimeBehavior='windowsApp' or @runFullTrust='true']")
-) 'The host must remain an AppContainer app and cannot declare runFullTrust.'
-Assert-HostCondition (
-    $manifest.SelectSingleNode("//*[local-name()='Application']").GetAttribute('Executable') `
-        -eq 'QiQiImeAppContainerSearchHost.exe'
-) 'The host executable name in the manifest is unexpected.'
+function Assert-QiQiUwpManifest {
+    param([xml] $Manifest, $App)
+
+    $identity = $Manifest.SelectSingleNode("//*[local-name()='Identity']")
+    Assert-HostCondition (
+        $identity -and $identity.GetAttribute('Name') -ceq $App.Identity -and
+        $identity.GetAttribute('ProcessorArchitecture') -ceq 'x64'
+    ) 'Package identity or processor architecture does not match the test profile.'
+    $capabilities = $Manifest.SelectNodes("//*[local-name()='Capabilities']/*")
+    $expectedCount = [int] (![string]::IsNullOrEmpty($App.Capability))
+    Assert-HostCondition ($capabilities.Count -eq $expectedCount) 'Unexpected capability count.'
+    if ($expectedCount) {
+        $capability = $capabilities.Item(0)
+        Assert-HostCondition (
+            $capability.LocalName -ceq 'Capability' -and
+            $capability.NamespaceURI -ceq 'http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities' -and
+            $capability.GetAttribute('Name') -ceq $App.Capability
+        ) 'Unexpected restricted capability.'
+    }
+    Assert-HostCondition (
+        $Manifest.SelectNodes("//*[local-name()='Extension' and @Category='windows.search']").Count -eq 1
+    ) 'The AppContainer host must declare exactly one windows.search extension.'
+    $entry = $Manifest.SelectSingleNode("//*[local-name()='Application']")
+    Assert-HostCondition (
+        $entry -and $entry.GetAttribute('Executable') -ceq "$($App.Binary).exe" -and
+        $entry.GetAttribute('EntryPoint') -ceq 'QiQiImeAppContainerSearchHost.App' -and
+        !$entry.HasAttribute('TrustLevel', 'http://schemas.microsoft.com/appx/manifest/uap/windows10/10')
+    ) 'The test executable or its AppContainer entry point is incorrect.'
+}
+
+$manifest = New-QiQiUwpManifest -Profile $app -Version '0.1.0.0'
+Assert-QiQiUwpManifest -Manifest $manifest -App $app
 Assert-HostCondition (
     Test-Path -LiteralPath $sourceCertificatePath -PathType Leaf
 ) 'The public development certificate is missing from the source directory.'
@@ -82,7 +94,7 @@ $sourceCertificate = [
         $sourceCertificatePath)
 try {
     Assert-HostCondition (
-        $sourceCertificate.Subject -eq $identity.GetAttribute('Publisher')
+        $sourceCertificate.Subject -eq $manifest.SelectSingleNode("//*[local-name()='Identity']").GetAttribute('Publisher')
     ) 'The source development certificate subject must match the manifest publisher.'
     Assert-HostCondition (
         -not $sourceCertificate.HasPrivateKey
@@ -144,13 +156,13 @@ if ($PackagePath) {
         Test-Path -LiteralPath $PackagePath -PathType Leaf
     ) "Package does not exist: $PackagePath"
 
-    $signature = Get-AuthenticodeSignature -FilePath $PackagePath
-    Assert-HostCondition (
-        $null -ne $signature.SignerCertificate
-    ) 'The package has no signer certificate.'
-    Assert-HostCondition (
-        $signature.Status -ne [System.Management.Automation.SignatureStatus]::HashMismatch
-    ) 'The signed package has a hash mismatch.'
+    if (!$AllowUnsigned) {
+        $signature = Get-AuthenticodeSignature -FilePath $PackagePath
+        Assert-HostCondition ($null -ne $signature.SignerCertificate) 'The package has no signer certificate.'
+        Assert-HostCondition (
+            $signature.Status -ne [System.Management.Automation.SignatureStatus]::HashMismatch
+        ) 'The signed package has a hash mismatch.'
+    }
 
     $sdkRoot = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10'
     $makeAppx = Get-ChildItem -LiteralPath $sdkRoot `
@@ -173,39 +185,37 @@ if ($PackagePath) {
         }
         $packagedExecutable = Join-Path `
             $unpackedRoot `
-            'QiQiImeAppContainerSearchHost.exe'
+            "$($app.Binary).exe"
         $packagedFixture = Join-Path `
             $unpackedRoot `
             'Assets\TestData.json'
         Assert-HostCondition (
             Test-Path -LiteralPath $packagedExecutable -PathType Leaf
-        ) 'The package does not contain QiQiImeAppContainerSearchHost.exe.'
+        ) "The package does not contain $($app.Binary).exe."
         Assert-HostCondition (
             Test-Path -LiteralPath $packagedFixture -PathType Leaf
         ) 'The package does not contain Assets\TestData.json.'
 
         $packageManifest = [xml](Get-Content -LiteralPath (
             Join-Path $unpackedRoot 'AppxManifest.xml') -Raw)
-        $packageIdentity = $packageManifest.SelectSingleNode(
-            "//*[local-name()='Identity']")
-        $publisher = if ($ExpectedPublisher) {
-            $ExpectedPublisher
-        } else {
-            $packageIdentity.GetAttribute('Publisher')
+        Assert-QiQiUwpManifest -Manifest $packageManifest -App $app
+        foreach ($asset in 'store.png', 'small.png', 'tile.png', 'wide.png', 'splash.png') {
+            Assert-HostCondition (Test-Path -LiteralPath (Join-Path $unpackedRoot "Assets\$asset") -PathType Leaf) `
+                "The package is missing $asset."
         }
-        Assert-HostCondition (
-            $signature.SignerCertificate.Subject -eq $publisher
-        ) "The package signer '$($signature.SignerCertificate.Subject)' does not match the package manifest publisher '$publisher'."
-        if ($ExpectedSignerThumbprint) {
+        if (!$AllowUnsigned) {
+            $publisher = $packageManifest.SelectSingleNode("//*[local-name()='Identity']").GetAttribute('Publisher')
             Assert-HostCondition (
-                $signature.SignerCertificate.Thumbprint -eq
-                    $ExpectedSignerThumbprint
-            ) 'The package signer thumbprint does not match the selected signing certificate.'
+                $signature.SignerCertificate.Subject -eq $publisher
+            ) 'The package signer does not match the manifest publisher.'
+            if ($ExpectedSignerThumbprint) {
+                Assert-HostCondition ($signature.SignerCertificate.Thumbprint -eq $ExpectedSignerThumbprint) `
+                    'The package signer thumbprint does not match the selected certificate.'
+            }
         }
     } finally {
-        Remove-Item -LiteralPath $unpackedRoot -Recurse -Force `
-            -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath (Resolve-Path -LiteralPath $unpackedRoot).Path -Recurse -Force
     }
 }
 
-Write-Host 'AppContainer host validation passed.'
+Write-Host "UWP $($app.Name) manifest and fixture verified."

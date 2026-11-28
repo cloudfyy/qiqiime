@@ -1,133 +1,85 @@
-# Packaged AppContainer search and IME test host
+# Packaged UWP test hosts
 
-This directory is an opt-in integration host. It is not built or tested by the
-normal QiQiIME CTest run.
+The three x64 AppContainer applications share the XAML input box, legacy Search
+Contract probe, synthetic fixtures, and diagnostics. They can be installed
+side by side and are not part of the production installer or ordinary CTest.
 
-The host:
+| Profile | Manifest capabilities | Expected QiQi configuration route | Icon |
+|---|---|---|---|
+| [zero](zero/app.psd1) | Neither `lpacCom` nor `registryRead` | Built-in defaults and bundled candidate ordering | Lock |
+| [com](com/app.psd1) | `lpacCom` only | Broker, when the installed Broker permits access | Linked nodes |
+| [reg](reg/app.psd1) | `registryRead` only | Read-only registry, when the key is readable | Registry tree |
 
-- is a minimum-permission, x64 packaged AppContainer;
-- uses a blue package and executable icon with a circular `U` badge to
-  distinguish it from the other hosts;
-- exposes one editable `TextBox` for normal TSF/IME input;
-- registers the legacy `windows.search` contract and handles Search Pane
-  query, suggestion, submit, and search activation events;
-- reports AppContainer/LPAC token state, inferred LPAC status, package and
-  capability SIDs, and broad `ALL APPLICATION PACKAGES` group membership;
-- loads controlled records and synthetic linguistic details from
-  [TestData.json](TestData.json);
-- writes privacy-safe events to the existing `QiQiIME.TraceLogging` provider;
-  and
-- exports the same non-input diagnostic messages to package
-  `LocalState\qiqi-appcontainer-host.log`.
+The shared manifest uses the same legacy `windows.search` extension in every
+profile. Its events do not prove a direct TSF search-candidate query. When the
+legacy pane is unavailable, the host still accepts ordinary IME input and
+provides its synthetic checks.
 
-The host never logs entered text, query contents, candidate contents,
-clipboard data, window titles, or filesystem paths.
+## Build and install
 
-## Important scope
-
-The Search Contract is a consumer-side compatibility probe. A Search Contract
-event does not prove that `ITfFnSearchCandidateProvider` was queried directly.
-Windows 10/11 may no longer expose the legacy pane; in that case the app records
-the exact `HRESULT` and still supports ordinary IME input plus synthetic tests.
-
-This manifest intentionally requests no capabilities. On that route, bundled
-candidate order and a denied direct Broker probe are expected; it is not a
-test of personalized dictionary synchronization. `QiQiChangeSyncTest` provides
-the positive `registryRead` check using an isolated registry and a real
-restricted AppContainer token. For other capability profiles, see the
-[permission hosts](../grpperm/README.md).
-
-## Package
-
-From PowerShell at the repository root:
+From the repository root:
 
 ```powershell
-tests\hosts\uwp\Package.ps1 -Configuration Release
+tests\hosts\uwp\Package.ps1
+tests\hosts\uwp\Install.ps1
 ```
 
-The script:
+`Package.ps1` builds all three by default; `-Profile com` builds only that profile.
+It reuses one C++/WinRT projection and shared compiled host sources, generates
+each icon and manifest, and verifies the signed MSIX with [Check.ps1](Check.ps1).
+Outputs are `dist\test-hosts\uwp-zero-<version>.msix`,
+`uwp-com-<version>.msix`, and `uwp-reg-<version>.msix`. These package identities
+are separate from the older single-profile test host.
 
-1. validates the manifest and packaged test data;
-2. configures a standalone CMake/MSVC build;
-3. generates the C++/WinRT projection from the installed Windows SDK;
-4. generates and embeds the executable window icon, then links an
-   `/APPCONTAINER` executable;
-5. generates package assets and a PRI;
-6. creates a self-signed development certificate;
-7. signs an installable MSIX; and
-8. validates the package contents and signer.
+Use VS 2022 or 2026 with the desktop C++ workload, Windows SDK 10.0.26100.0
+with C++/WinRT, MakePri, MakeAppx and SignTool, and CMake 4.x. The Visual Studio
+C++ UWP workload is not required.
 
-Outputs:
+The shared public certificate is [dev.cer](dev.cer). The matching signing key
+must already be present in `Cert:\CurrentUser\My`. An external PFX can be used
+with `-CertificatePath` and `-CertificatePassword`; keep it out of the
+repository. `-SkipSigning` produces validated but non-installable MSIX files.
+`-RotateDevelopmentCertificate` deliberately replaces the shared developer
+certificate, including the one used by the Full Trust host.
 
-- `dist\test-hosts\QiQiImeAppContainerSearchHost_<version>.msix`
-- `cert\QiQiImeDevelopment.cer` (public certificate kept in source control)
-- a generated development private key retained in the current user's
-  `Cert:\CurrentUser\My` store for repeatable package updates
+Installation needs elevation only to add the public certificate to
+`Cert:\LocalMachine\TrustedPeople` when it is not already trusted. It does not
+change production registry, directory, or Broker permissions. `Install.ps1`
+installs all three profiles by default, validating every selected package before
+trusting the certificate or installing any app. Installation is sequential, not
+transactional: an OS installation failure stops the script, but does not remove
+profiles already installed successfully.
 
-Signing private keys and PFX files are never copied into source control. The
-checked-in `.cer` contains only the public certificate and is safe to share.
-Subsequent package builds find the private key whose thumbprint matches this
-file. This keeps package upgrades within one trusted signer identity.
-
-To intentionally replace the development certificate, run the package script
-with `-RotateDevelopmentCertificate`, import the updated `.cer` on test
-machines, and include that public-certificate change in the same commit as the
-affected package update. `-CertificatePath` remains available for an externally
-managed PFX and does not replace the checked-in development certificate.
-
-To use an existing code-signing PFX:
+Use `-Profile zero`, `-Profile com`, or `-Profile reg` for one application.
+An explicit `-PackagePath` also requires one of these individual profiles.
+To remove an individual app while retaining the certificate and the other profiles:
 
 ```powershell
-tests\hosts\uwp\Package.ps1 `
-  -CertificatePath C:\path\development.pfx `
-  -CertificatePassword $securePassword
+tests\hosts\uwp\Remove.ps1 -Profile com
 ```
 
-The certificate subject becomes the package Publisher. Its public trust
-certificate must be installed in `Cert:\LocalMachine\TrustedPeople`.
+The isolated `QiQiUwpInstallScriptTest` checks defaults, single-profile/custom-path
+installation and all-package preflight failure without trusting certificates or
+registering real apps.
 
-## Install and remove
+## Runtime acceptance
 
-```powershell
-tests\hosts\uwp\Install-Host.ps1
-tests\hosts\uwp\Uninstall-Host.ps1
-```
+For each application launched from Start:
 
-Run the install script from an elevated PowerShell. Microsoft MSIX sideloading
-requires the checked-in self-signed development certificate in
-`Cert:\LocalMachine\TrustedPeople`; a current-user `TrustedPeople` entry is not
-sufficient for this deployment path. The script checks elevation, imports the
-certificate from `cert\QiQiImeDevelopment.cer` into that exact store, and
-installs only the host package.
+1. Check `AppContainer=true` and `token match=true`. The host reads the actual
+   token for `lpacCom` and `registryRead`; successful packaging does not prove
+   that Windows granted them.
+2. Click **Probe Config Access**. It reports direct Broker HRESULTs and the
+   read-only registry probe separately. Named capabilities select a route but
+   do not grant access to a particular Broker or registry key. A denial on an
+   allowed route is not reported as success.
+3. Use a synthetic pinned phrase. The zero profile should retain bundled order;
+   the other profiles should use the pinned order only if their respective
+   configuration and shared snapshot reads succeed. Do not grant broader rights
+   to make a no-capability test pass.
 
-After testing, the package and trust entry can be removed together with:
-
-```powershell
-tests\hosts\uwp\Uninstall-Host.ps1 `
-  -RemoveDevelopmentCertificate
-```
-
-Launch **QiQiIME AppContainer Search Host** from Start, then:
-
-1. confirm:
-   - `TokenIsAppContainer: true`;
-   - the broad package-group membership reported by this Windows build;
-   - whether LPAC is inferred from group absence; and
-   - the package SID is available;
-2. type a Wubi code in the input box;
-3. inspect the automatically run synthetic fixture result;
-4. optionally click **Run synthetic fixtures** again;
-5. optionally click **Open legacy Search Pane** and note the recorded `HRESULT`
-   if the OS no longer supports it;
-6. click **Probe Config Broker** to inspect package identity, proxy/DLL access,
-   DCOM activation, and Broker method access; and
-7. capture `QiQiIME.TraceLogging` with QiQi Log Monitor.
-
-## Build prerequisites
-
-- Visual Studio 2022 or 2026 with the MSVC desktop C++ workload;
-- Windows 10/11 SDK 10.0.26100.0, including C++/WinRT, PRI, MakeAppx, and
-  SignTool; and
-- CMake 4.x.
-
-The Visual Studio C++ UWP workload is intentionally not required.
+The UI and logs report only diagnostics, not entered text, queries, candidates,
+clipboard contents, window titles, or filesystem paths. Each app has its own
+`LocalState\qiqi-appcontainer-host.log`. The independent
+[`registryRead` regression](../../../docs/uwp.md#dictionaries-and-synchronization)
+and [permission hosts](../grpperm/README.md) remain available for comparison.

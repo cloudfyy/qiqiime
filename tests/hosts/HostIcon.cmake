@@ -4,23 +4,8 @@
 include_guard(GLOBAL)
 
 function(qiqi_add_host_window_icon)
-    set(one_value_args
-        TARGET
-        GLYPH
-        BACKGROUND
-        BADGE_COLOR
-        BADGE_TEXT_COLOR
-        BADGE_TEXT
-        BADGE_SHAPE)
-    cmake_parse_arguments(ARG "" "${one_value_args}" "" ${ARGN})
-    foreach(required IN ITEMS
-        TARGET
-        GLYPH
-        BACKGROUND
-        BADGE_COLOR
-        BADGE_TEXT_COLOR
-        BADGE_TEXT
-        BADGE_SHAPE)
+    cmake_parse_arguments(ARG "" "TARGET;KIND" "" ${ARGN})
+    foreach(required IN ITEMS TARGET KIND)
         if(NOT ARG_${required})
             message(FATAL_ERROR
                 "qiqi_add_host_window_icon requires ${required}.")
@@ -35,11 +20,11 @@ function(qiqi_add_host_window_icon)
         NAMES pwsh.exe powershell.exe
         REQUIRED)
     set(output_directory
-        "${CMAKE_CURRENT_BINARY_DIR}/generated/host-icon")
+        "${CMAKE_CURRENT_BINARY_DIR}/generated/icon")
     set(QIQI_HOST_WINDOW_ICON
-        "${output_directory}/${ARG_TARGET}.ico")
+        "${output_directory}/${ARG_KIND}.ico")
     set(resource_file
-        "${output_directory}/${ARG_TARGET}.rc")
+        "${output_directory}/${ARG_KIND}.rc")
     file(MAKE_DIRECTORY "${output_directory}")
 
     add_custom_command(
@@ -49,18 +34,10 @@ function(qiqi_add_host_window_icon)
             -NoProfile
             -NonInteractive
             -File
-            "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/Generate-HostWindowIcon.ps1"
+            "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/Icon.ps1"
             -OutputPath "${QIQI_HOST_WINDOW_ICON}"
-            -GlyphIconPath "${ARG_GLYPH}"
-            -BackgroundColor "${ARG_BACKGROUND}"
-            -BadgeColor "${ARG_BADGE_COLOR}"
-            -BadgeTextColor "${ARG_BADGE_TEXT_COLOR}"
-            -BadgeText "${ARG_BADGE_TEXT}"
-            -BadgeShape "${ARG_BADGE_SHAPE}"
-        DEPENDS
-            "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/Generate-HostAssets.ps1"
-            "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/Generate-HostWindowIcon.ps1"
-            "${ARG_GLYPH}"
+            -Kind "${ARG_KIND}"
+        DEPENDS "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/Icon.ps1"
         VERBATIM)
     file(TO_CMAKE_PATH
         "${QIQI_HOST_WINDOW_ICON}"

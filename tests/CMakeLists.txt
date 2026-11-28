@@ -24,3 +24,8 @@ add_test(NAME QiQiRuntimeArchitectureTest
         -NoLogo -NoProfile -ExecutionPolicy Bypass
         -File "${CMAKE_CURRENT_SOURCE_DIR}/installer/runtime.ps1"
 )
+add_test(NAME QiQiUwpInstallScriptTest
+    COMMAND "${QIQI_POWERSHELL_EXECUTABLE}"
+        -NoLogo -NoProfile -ExecutionPolicy Bypass
+        -File "${CMAKE_CURRENT_SOURCE_DIR}/hosts/uwp/install-test.ps1"
+)

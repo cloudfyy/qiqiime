@@ -36,19 +36,15 @@
   当时的[品牌资源](../data/qiqiime.ico)是透明背景、白色字形和半透明黑色描边，
   浅色背景下依赖描边呈现；这与中/英状态图标的颜色选择是两回事。
 
-## 3. CxxIME 对比
+## 3. 外部实现对照
 
-- [语言栏实现](https://github.com/deanxyuan/cxx-ime/blob/master/tsf/src/language_bar.cpp)
-  根据中文、英文和 CapsLock 状态选择固定 ICO，返回复制的图标，
+- 研究时观察到的外部语言栏实现根据中文、英文和 CapsLock 状态选择固定 ICO，返回复制的图标，
   未使用 `TF_LBI_STYLE_TEXTCOLORICON`；不能据此称其具备官方式主题自动着色。
 - 维护显示/隐藏状态，并按变化通知状态、图标及提示等信息。
-- [输入指示器控制器](https://github.com/deanxyuan/cxx-ime/blob/master/tsf/src/input_indicator_controller.cpp)
-  有移除、重新添加语言栏项以及完整刷新机制。
-  [会话实现](https://github.com/deanxyuan/cxx-ime/blob/master/tsf/src/text_service_session.cpp)
-  在刷新失败时安排有上限的延迟重试。
+- 输入指示器控制器有移除、重新添加语言栏项以及完整刷新机制。
+  会话实现会在刷新失败时安排有上限的延迟重试。
   可参考其注册状态、失败诊断和回调生命周期管理，但不应盲目反复 Remove/Add。
-- [注册实现](https://github.com/deanxyuan/cxx-ime/blob/master/tsf/src/register.cpp)
-  还绑定 legacy IMM HKL，与奇奇纯 TSF 路径不同；不为图标问题引入该架构
+- 注册实现还绑定 legacy IMM HKL，与奇奇纯 TSF 路径不同；不为图标问题引入该架构
   或私有宿主兼容逻辑，也不照搬全部 capability 声明。
 
 ## 4. Rime / 小狼毫对比

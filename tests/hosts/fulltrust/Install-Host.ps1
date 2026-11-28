@@ -13,12 +13,12 @@ Set-StrictMode -Version Latest
 $repositoryRoot = [IO.Path]::GetFullPath(
     (Join-Path $PSScriptRoot '..\..\..'))
 $certificatePath = Join-Path $repositoryRoot `
-    'tests\hosts\uwp\cert\QiQiImeDevelopment.cer'
+    'tests\hosts\uwp\dev.cer'
 
 if (-not $PackagePath) {
     $PackagePath = Get-ChildItem `
         -LiteralPath (Join-Path $repositoryRoot 'dist\test-hosts') `
-        -Filter 'QiQiImePackagedFullTrustHost_*.msix' `
+        -Filter 'fulltrust-*.msix' `
         -File `
         -ErrorAction Stop |
         Sort-Object LastWriteTime -Descending |

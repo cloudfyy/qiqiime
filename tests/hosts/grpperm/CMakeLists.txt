@@ -18,6 +18,7 @@ endif()
 
 add_library(qiqi_lpac_token_info STATIC
     ../common/tokeninfo.cpp)
+target_link_libraries(qiqi_lpac_token_info PUBLIC OneCoreUAP)
 target_include_directories(qiqi_lpac_token_info PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/../common")
 target_compile_definitions(qiqi_lpac_token_info PRIVATE
@@ -37,8 +38,7 @@ set_property(TARGET qiqi_lpac_token_info PROPERTY
 
 include("${CMAKE_CURRENT_SOURCE_DIR}/../HostIcon.cmake")
 
-function(qiqi_add_permission_host target executable display_name
-    background badge_color badge_text_color badge_text)
+function(qiqi_add_permission_host target executable display_name kind)
     add_executable("${target}" WIN32
         host.cpp
         ../common/brokerprobe.cpp)
@@ -79,30 +79,19 @@ function(qiqi_add_permission_host target executable display_name
         MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
     qiqi_add_host_window_icon(
         TARGET "${target}"
-        GLYPH "${CMAKE_CURRENT_SOURCE_DIR}/../../../data/qiqiime-dark.ico"
-        BACKGROUND "${background}"
-        BADGE_COLOR "${badge_color}"
-        BADGE_TEXT_COLOR "${badge_text_color}"
-        BADGE_TEXT "${badge_text}"
-        BADGE_SHAPE "Circle")
+        KIND "${kind}")
 endfunction()
 
 qiqi_add_permission_host(
     QiQiImeBroadGroupHost
     "QiQiImeBroadGroupHost.exe"
     "QiQiIME Broad Group COM Host"
-    "#2563EB"
-    "#DBEAFE"
-    "#1E3A8A"
-    "B")
+    group)
 qiqi_add_permission_host(
     QiQiImePackageOnlyHost
     "QiQiImePackageOnlyHost.exe"
     "QiQiIME Package-only COM Host"
-    "#6D28D9"
-    "#DDD6FE"
-    "#2E1065"
-    "P")
+    pack)
 
 add_executable(QiQiImePermissionLauncher launcher.cpp)
 target_compile_definitions(QiQiImePermissionLauncher PRIVATE

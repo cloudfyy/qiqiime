@@ -1,5 +1,99 @@
 # TODO
 
+## 输入法工程借鉴待办（2026-11-28）
+
+汇总此前的输入法工程对照分析；
+[librime](https://github.com/rime/librime) 和
+[小狼毫](https://github.com/rime/weasel) 分别作为引擎和 Windows 前端参考。
+只借鉴工程机制，不代表已完成同机性能比较，也不将建议标为已实现。
+先修正确性、建立基线，再根据数据优化；本组优先级不替代既有稳定性和真实宿主验收排期。
+
+### P1：正确性与可审计基线
+
+- [ ] <a id="ime-e01"></a> **E01：收紧学习成功边界。**
+  核对并将词频/偏好更新绑定到实际宿主文本写入成功，而不是请求入队、
+  edit session 获准或外层回调返回成功；同一成功提交只学习一次。
+  覆盖写入失败、取消、过期、重入和重复通知，未实际写入时不得学习。
+  写入成功但后续清理失败应分别诊断，不用总 HRESULT 掩盖已发生的写入或重复学习。
+
+- [ ] <a id="ime-e02"></a> **E02：候选全量回放与排序变更审计。**
+  为极点、海峰分别建立全部有效编码及前缀的确定性候选基线；
+  在隔离数据中固化置顶优先、短码习惯、单字位置固定和仅词组动态调整等既有规则。
+  输出首选变化率、短码变化、精确码降级、可见候选集合变化及位置移动；
+  固定词库、生成工具和结果指纹，词库/排序升级时提供可复现差异报告。
+  变化门槛由基线数据审定，不照搬对方频率阈值；超出门槛须显式审查，不能自动更新基线。
+
+- [ ] <a id="ime-e03"></a> **E03：补齐输入链路测量与可复现查询基准。**
+  复用[现有 ETW/Metrics](metrics.md)，补齐按键、查词、edit session、
+  实际上屏、清理与候选呈现的生产埋点；请求受理不算实际操作成功。
+  记录扫描量、候选数量、缓存命中及截断原因，分别测精确、补全、通配、反查和多过滤路径。
+  固定合成输入、词库指纹、架构及冷/热缓存条件，报告 P50/P95/P99、最大值和失败/不完整样本。
+  关联[已有分配与队列滞留测量](#input-path-allocation-metrics)，不重复创建同类任务；
+  比较 metrics 开/关开销，复用现有关注线，不把关注线或无样本当成性能保证。
+
+### P2：候选、查询与学习机制
+
+- [ ] <a id="ime-e04"></a> **E04：统一候选身份与来源。**
+  明确原词条、词库来源、编码、排序依据、显示文字和提交文字的边界；
+  同文候选合并后仍保留来源及原始身份，供编码提示、诊断和后续学习访问。
+  默认沿用当前首个原词条作为操作对象，不擅自改为对全部来源同时删词、置顶或调频。
+  四码唯一性仍按原始精确候选判断，拼音反查保持不转换；
+  用[回放基线](#ime-e02)及同词跨库、转换重合、翻页/选词回归守住既有行为。
+
+- [ ] <a id="ime-e05"></a> **E05：为高扫描成本查询增加预算与完成状态。**
+  基于[测量结果](#ime-e03)确定扫描量和时间预算，优先覆盖通配、反查及过滤较多的查询；
+  复用统一检查逻辑，在长循环中检查预算，不能只限制返回 50 项或只在入口检查 deadline。
+  明确区分完整空结果、还有候选、分页裁剪、扫描截断和时间耗尽；
+  部分结果不得伪装为完整结果，原始精确候选唯一性未完整核验时不得自动上屏。
+  覆盖稀疏匹配、全部被过滤、预算边界及唯一性判断，不宣称硬实时保证。
+
+- [ ] <a id="ime-e06"></a> **E06：学习持久化离开输入关键路径。**
+  在[学习成功边界](#ime-e01)落实后，让内存偏好及时生效，持久化合并批处理；
+  不把延后到 edit session 当成后台保存，也不简单增加一个独立写文件线程。
+  保留现有跨进程同步、修订和冲突处理语义，防止旧快照覆盖新更新。
+  实现前明确保存失败诊断/重试、正常退出刷新及异常退出可接受的丢失窗口。
+  覆盖并发更新、写入失败和退出边界，并用[输入链路测量](#ime-e03)验证关键路径成本。
+
+- [ ] <a id="ime-e07"></a> **E07 / 有条件：评估按需分页、版本化快照与前缀预计算。**
+  仅在[测量](#ime-e03)证明候选合并、去重、过滤或重复查询是热点后实施；
+  以[候选身份](#ime-e04)和[预算/完成状态](#ime-e05)为前提，首屏按需生成、翻页继续并复用已产生结果。
+  明确词库、配置/过滤/转换、学习、置顶和屏蔽变化的失效条件，保证同一查询已呈现顺序稳定。
+  不以首屏数量判断四码唯一性，不伪造 TSF/UILess 所需的总数或分页状态；
+  是否突破现有总候选上限另行确认，不顺带实施 [W14 第十候选](#wubi-w14)。
+  前缀预排序索引仅在收益成立时增加，同时审计排序、构建时间和资源体积；不预设 Trie 更快。
+
+- [ ] <a id="ime-e08"></a> **E08 / 先确认语义：评估学习衰减与显式撤销。**
+  在[成功边界](#ime-e01)和[候选身份](#ime-e04)明确后，区分手动置顶、累计偏好与近期偏好；
+  确认衰减规则、撤销范围及跨进程持久化语义，保留仅词组调频和单字位置固定的约束。
+  置顶不参与衰减；撤销只回退学习记录，不修改宿主正文，不把任意 Backspace 推断为删除刚提交的词。
+  覆盖偶然误选、撤销后的排序/同步及私密上下文不学习；不直接套用 Rime 的三秒退格窗口。
+
+### P3：词典发布与配置维护
+
+- [ ] <a id="ime-e09"></a> **E09：完善词典导入、编译与发布流程。**
+  复用现有 `.qdict`、只读映射及缓存机制，补齐源词库指纹、产物格式和工具版本，
+  明确依赖变化及重建原因；新资源完整校验后再发布，失败保留旧资源并显式报错。
+  不在按键路径重编译，不覆写仍被映射的资源；在安全输入边界刷新。
+  覆盖坏产物、编译/发布失败、旧映射仍在使用及多进程刷新，
+  并通过[候选回放](#ime-e02)审查词库升级结果。
+
+- [ ] <a id="ime-e10"></a> **E10 / 先确认语义：评估默认值与用户覆盖分层。**
+  保留强类型、注册表、GUI 和现有导入导出机制，不改成任意 YAML 配置；
+  区分“继承默认”与“已自定义”，评估单项恢复、默认值升级和旧配置迁移。
+  升级不覆盖用户显式选择，备份/恢复保留覆盖语义，不破坏现有缺失字段处理规则。
+  有限应用级选项另行确认范围，区分初始状态与强制状态，不持续覆盖用户手动切换。
+
+### 实施边界与共同完成条件
+
+- 保持现有 FSM、预测阶段不查词/不推进状态/不编辑文档，以及候选窗消失和组合生命周期策略；
+  借鉴查词、排序/过滤、注释与输出转换的职责边界，不复制插件框架。
+- 不以此安排常驻服务端重构、通用 YAML/Lua 管线或另一套 JSONL 日志；
+  引入参考代码、词典或语料前分别核实许可证，不把架构参考当成数据使用许可。
+- 运行时诊断只记录非敏感计数、耗时与真实失败码；回放使用授权随包词库及隔离合成数据，
+  不读取个人词库或记录真实用户输入、候选正文和剪贴板。
+- 每项沿用[已有共同完成条件](#后续实现的共同完成条件)及[验证规则](dev.md#required-validation-by-change-scope)；
+  先确认标注的行为/预算，再实施并验证，不因参考项目已有类似功能就直接标为完成。
+
 ## 五笔功能核对与排期（2026-11-19）
 
 本节对照常用五笔功能清单核实当前源码，不把规划、词库覆盖范围或相似功能算作已实现。
@@ -737,8 +831,9 @@ status-bar/tooltip skin support require separate design approval.
   MSIX packages for both hosts, with repeatable packaging scripts and a
   documented test-certificate installation flow. Do not commit signing private
   keys or include these test hosts in the QiQiIME product MSI.
-  The UWP/AppContainer host is now implemented at
-  [tests/hosts/uwp](../tests/hosts/uwp/README.md), including
+  The three UWP/AppContainer hosts are implemented at
+  [tests/hosts/uwp](../tests/hosts/uwp/README.md), with `zero`, `com`, and `reg`
+  profiles sharing the same application sources, including
   synthetic Search Contract fixtures, privacy-safe TraceLogging/LocalState
   diagnostics, and a repeatable signed-MSIX/installer flow. The packaged
   full-trust host is implemented at
@@ -746,13 +841,14 @@ status-bar/tooltip skin support require separate design approval.
   `Windows.FullTrustApplication`/medium-IL identity, default registry
   virtualization, a real Rich Edit input target, TSF search-provider probing,
   package-private shadow injection, desktop-state comparison, and installable
-  MSIX packaging. The parent TODO remains open until real-host acceptance.
+  MSIX packaging. The three separately signed UWP packages were temporarily
+  installed and launched to verify their actual capability combinations. The
+  parent TODO remains open until the IME behaviors are accepted in real hosts.
 
 - [x] Extend the restricted-host matrix with a dedicated LPAC launcher and
   matching packaged-AppContainer upgrades. Keep the existing
-  `tests/hosts/uwp` fixture as
-  the ordinary, capability-free UWP/AppContainer baseline; do not change its
-  package into LPAC. Add an opt-in launcher that creates an explicit
+  `zero` profile as the capability-free UWP/AppContainer baseline; the `com`
+  and `reg` profiles are separate package identities. Add an opt-in launcher that creates an explicit
   AppContainer profile/package SID, configures
   `PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES`, and sets
   `PROC_THREAD_ATTRIBUTE_ALL_APPLICATION_PACKAGES_POLICY` to
@@ -1069,7 +1165,7 @@ status-bar/tooltip skin support require separate design approval.
   The registry DWORD `SpaceEnterMode` uses 0/1/2 in the order above; backups
   store stable string names under `space_enter_mode`.
 
-- [ ] Measure input-path allocation pressure and deferred edit-session retention.
+- [ ] <a id="input-path-allocation-metrics"></a> Measure input-path allocation pressure and deferred edit-session retention.
   Count allocations and allocated bytes per key/edit request, including result
   snapshot copies and stored callbacks; measure snapshot size and requeue counts.
   Track pending edit-session count and retained-byte peaks under normal and slow

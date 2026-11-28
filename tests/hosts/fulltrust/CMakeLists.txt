@@ -59,10 +59,16 @@ set_property(TARGET QiQiImePackagedFullTrustHost PROPERTY
 include("${CMAKE_CURRENT_SOURCE_DIR}/../HostIcon.cmake")
 qiqi_add_host_window_icon(
     TARGET QiQiImePackagedFullTrustHost
-    GLYPH "${CMAKE_CURRENT_SOURCE_DIR}/../../../data/qiqiime-light.ico"
-    BACKGROUND "#9A3412"
-    BADGE_COLOR "#FDBA74"
-    BADGE_TEXT_COLOR "#2D1600"
-    BADGE_TEXT "F"
-    BADGE_SHAPE "Square")
+    KIND full)
 
+enable_testing()
+add_test(NAME QiQiFullTrustUiTest
+    COMMAND "${QIQI_HOST_POWERSHELL_EXECUTABLE}"
+        -NoLogo -NoProfile -ExecutionPolicy Bypass
+        -File "${CMAKE_CURRENT_SOURCE_DIR}/UiTest.ps1"
+        -ExecutablePath "$<TARGET_FILE:QiQiImePackagedFullTrustHost>"
+        -IconPath "${CMAKE_CURRENT_BINARY_DIR}/generated/icon/full.ico"
+)
+set_tests_properties(QiQiFullTrustUiTest PROPERTIES
+    TIMEOUT 40
+    RUN_SERIAL TRUE)

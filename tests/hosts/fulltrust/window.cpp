@@ -458,9 +458,6 @@ bool HostWindow::CreateControls() noexcept {
          }) {
         SetControlFont(control, font_);
     }
-    ::SetWindowTextW(
-        input_,
-        L"Type input here. Entered text and IME candidates are not logged.");
     ::SendMessageW(
         input_,
         EM_SETLIMITTEXT,

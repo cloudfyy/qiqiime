@@ -3,7 +3,8 @@
 This standalone fixture launches a Win32 Rich Edit host inside explicit
 AppContainer profiles. It is separate from the packaged AppContainer and
 full-trust hosts and is not part of the normal CTest run, product build, or
-QiQiIME MSI. The two COM hosts use distinct blue `B` and purple `P` icons.
+QiQiIME MSI. The two COM hosts have distinct, text-free window and package
+glyphs on the same navy tile used by the other test hosts.
 
 ## Profiles
 

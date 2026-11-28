@@ -5,6 +5,7 @@
 
 #include <sddl.h>
 
+#include <algorithm>
 #include <format>
 #include <memory>
 #include <new>
@@ -115,24 +116,32 @@ bool IsSid(
         actual == expected;
 }
 
-DWORD AppendGroupSids(
-    const TOKEN_GROUPS& groups,
-    State& state) noexcept {
-    try {
-        state.capability_sids.reserve(groups.GroupCount);
-        for (DWORD index = 0;
-             index < groups.GroupCount;
-             ++index) {
-            std::wstring value;
-            if (!SidToString(
-                    groups.Groups[index].Sid,
-                    value)) {
-                return ERROR_INVALID_SID;
-            }
-            state.capability_sids.push_back(std::move(value));
+struct DerivedSidList {
+    PSID* values = nullptr;
+    DWORD count = 0;
+
+    DerivedSidList() = default;
+    DerivedSidList(const DerivedSidList&) = delete;
+    DerivedSidList& operator=(const DerivedSidList&) = delete;
+
+    ~DerivedSidList() noexcept {
+        if (values) {
+            for (const PSID sid : std::span(values, count)) ::LocalFree(sid);
+            ::LocalFree(values);
         }
-    } catch (const std::bad_alloc&) {
-        return ERROR_NOT_ENOUGH_MEMORY;
+    }
+};
+
+DWORD MatchCapability(std::span<const std::wstring> entries, const wchar_t* name, bool& matched) noexcept {
+    DerivedSidList groups, capability;
+    if (!::DeriveCapabilitySidsFromName(name, &groups.values, &groups.count, &capability.values, &capability.count)) {
+        return ::GetLastError();
+    }
+    if (!capability.values || capability.count == 0) return ERROR_INVALID_DATA;
+    for (const PSID sid : std::span(capability.values, capability.count)) {
+        std::wstring expected;
+        if (!SidToString(sid, expected)) return ERROR_INVALID_SID;
+        matched |= std::ranges::contains(entries, expected);
     }
     return ERROR_SUCCESS;
 }
@@ -149,25 +158,33 @@ DWORD QueryCapabilities(
     if (buffer.empty()) {
         return ERROR_SUCCESS;
     }
-    if (buffer.size() < sizeof(TOKEN_GROUPS)) {
+    constexpr size_t offset = offsetof(TOKEN_GROUPS, Groups);
+    if (buffer.size() < offset) {
         return ERROR_INVALID_DATA;
     }
     const auto* groups =
         reinterpret_cast<const TOKEN_GROUPS*>(buffer.data());
-    const size_t offset = offsetof(TOKEN_GROUPS, Groups);
     if (groups->GroupCount >
         (buffer.size() - offset) /
             sizeof(SID_AND_ATTRIBUTES)) {
         return ERROR_INVALID_DATA;
     }
-    const size_t required =
-        offset +
-        static_cast<size_t>(groups->GroupCount) *
-            sizeof(SID_AND_ATTRIBUTES);
-    if (required > buffer.size()) {
-        return ERROR_INVALID_DATA;
+    if (groups->GroupCount == 0) return ERROR_SUCCESS;
+    const std::span<const SID_AND_ATTRIBUTES> entries(groups->Groups, groups->GroupCount);
+    try {
+        state.capability_sids.reserve(entries.size());
+        for (const auto& entry : entries) {
+            if ((entry.Attributes & SE_GROUP_ENABLED) == 0) continue;
+            std::wstring value;
+            if (!SidToString(entry.Sid, value)) return ERROR_INVALID_SID;
+            state.capability_sids.push_back(std::move(value));
+        }
+    } catch (const std::bad_alloc&) {
+        return ERROR_NOT_ENOUGH_MEMORY;
     }
-    return AppendGroupSids(*groups, state);
+    const DWORD com = MatchCapability(state.capability_sids, L"lpacCom", state.has_lpac_com);
+    return com != ERROR_SUCCESS ? com
+        : MatchCapability(state.capability_sids, L"registryRead", state.has_registry_read);
 }
 
 DWORD QueryGroups(
@@ -292,7 +309,7 @@ std::wstring FormatState(const State& state) {
         L"AllApplicationPackages={} ; "
         L"AllRestrictedApplicationPackages={} (groups_error={}); "
         L"PackageSID={} (error={}); "
-        L"Capabilities=[{}] (count={}, error={})",
+        L"lpacCom={}; registryRead={}; Capabilities=[{}] (count={}, error={})",
         state.is_app_container ? L"true" : L"false",
         state.app_container_error,
         state.is_less_privileged_app_container ? L"true" : L"false",
@@ -309,6 +326,8 @@ std::wstring FormatState(const State& state) {
             ? L"<unavailable>"
             : state.package_sid,
         state.package_sid_error,
+        state.has_lpac_com,
+        state.has_registry_read,
         JoinStrings(state.capability_sids),
         state.capability_sids.size(),
         state.capabilities_error);

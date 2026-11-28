@@ -22,6 +22,8 @@ struct State {
     bool inferred_less_privileged_app_container = false;
     bool has_all_application_packages = false;
     bool has_all_restricted_application_packages = false;
+    bool has_lpac_com = false;
+    bool has_registry_read = false;
     std::wstring package_sid;
     std::vector<std::wstring> capability_sids;
 };

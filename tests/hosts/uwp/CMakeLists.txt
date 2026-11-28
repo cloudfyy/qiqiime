@@ -51,30 +51,29 @@ add_custom_command(
 add_custom_target(qiqi_generate_appcontainer_search_projection
     DEPENDS "${QIQI_WINRT_PROJECTION}/winrt/Windows.UI.Xaml.h")
 
-add_executable(QiQiImeAppContainerSearchHost WIN32
+add_library(uwp-core OBJECT
     ../common/tokeninfo.cpp
     ../common/brokerprobe.cpp
-    diagnostics.cpp
     fixtures.cpp
     hostapp.cpp
     main.cpp
 )
-add_dependencies(QiQiImeAppContainerSearchHost
+add_dependencies(uwp-core
     qiqi_generate_appcontainer_search_projection)
 
-target_include_directories(QiQiImeAppContainerSearchHost PRIVATE
+target_include_directories(uwp-core PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}"
     "${CMAKE_CURRENT_SOURCE_DIR}/../common"
     "${CMAKE_CURRENT_SOURCE_DIR}/../../../src"
     "${QIQI_WINRT_PROJECTION}")
-target_compile_definitions(QiQiImeAppContainerSearchHost PRIVATE
+target_compile_definitions(uwp-core PUBLIC
     UNICODE
     _UNICODE
     WIN32_LEAN_AND_MEAN
     WINRT_LEAN_AND_MEAN
     NOMINMAX
     WINAPI_FAMILY=WINAPI_FAMILY_APP)
-target_compile_options(QiQiImeAppContainerSearchHost PRIVATE
+target_compile_options(uwp-core PUBLIC
     /W4
     /permissive-
     /EHsc
@@ -82,21 +81,22 @@ target_compile_options(QiQiImeAppContainerSearchHost PRIVATE
     /utf-8
     "$<$<CONFIG:Debug>:/Od>"
     "$<$<NOT:$<CONFIG:Debug>>:/O1;/Gy;/Gw;/GL>")
-target_link_options(QiQiImeAppContainerSearchHost PRIVATE
+target_link_options(uwp-core INTERFACE
     /APPCONTAINER
     /SUBSYSTEM:WINDOWS
     /MANIFEST:NO
     "$<$<NOT:$<CONFIG:Debug>>:/LTCG;/OPT:REF;/OPT:ICF>")
-target_link_libraries(QiQiImeAppContainerSearchHost PRIVATE WindowsApp.lib)
-set_property(TARGET QiQiImeAppContainerSearchHost PROPERTY
+target_link_libraries(uwp-core PUBLIC WindowsApp.lib)
+set_property(TARGET uwp-core PROPERTY
     MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
 include("${CMAKE_CURRENT_SOURCE_DIR}/../HostIcon.cmake")
-qiqi_add_host_window_icon(
-    TARGET QiQiImeAppContainerSearchHost
-    GLYPH "${CMAKE_CURRENT_SOURCE_DIR}/../../../data/qiqiime-dark.ico"
-    BACKGROUND "#0078D4"
-    BADGE_COLOR "#50E6FF"
-    BADGE_TEXT_COLOR "#003B5C"
-    BADGE_TEXT "A"
-    BADGE_SHAPE "Circle")
+foreach(profile IN ITEMS zero com reg)
+    set(target "uwp-${profile}")
+    add_executable("${target}" WIN32 diagnostics.cpp)
+    target_link_libraries("${target}" PRIVATE uwp-core)
+    target_compile_definitions("${target}" PRIVATE "QIQI_HOST_PROCESS_NAME=L\"${target}.exe\"")
+    set_property(TARGET "${target}" PROPERTY
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+    qiqi_add_host_window_icon(TARGET "${target}" KIND "${profile}")
+endforeach()
